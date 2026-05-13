@@ -133,18 +133,23 @@ The `local` backend uses [`pyttsx4`](https://pypi.org/project/pyttsx4/) (a maint
 
 ## Roadmap
 
-- [ ] Interactive controls during playback: pause / resume, skip paragraph or section, change rate on the fly (requires a non-blocking engine loop).
+- [x] Interactive controls during playback (SPACE / s / n / b / +/- / q) — v0.3
+- [x] Optional cloud-quality TTS backend (Microsoft Edge neural voices) — v0.2
+- [x] Rewind / skip-back during interactive mode — v0.3
+- [x] MP3 export of an entire document for offline mobile listening — v0.4
 - [ ] PyPI release (`pip install md-tts`)
-- [x] Optional cloud-quality TTS backend (Microsoft Edge neural voices)
-- [ ] Rewind / skip-back during interactive mode
-- [ ] Persistent "bookmarks" to resume a long document
-- [x] MP3 export of an entire document for offline mobile listening
+- [ ] Math blocks (`$$ ... $$`) detected as pause points instead of being read as prose
+- [ ] Standalone image blocks announced as `[image: alt-text]` instead of being silently flattened
+- [ ] Bookmarks: persist a per-document position so `--resume` picks up where you left off
+- [ ] `--chapter` flag to start playback from a specific heading
+- [ ] Real-time rate change (requires a streaming pitch-preserving resampler — non-trivial)
+- [ ] More backends: Piper (local neural, fast, free), Azure TTS (premium voices via API key)
 
 ## Development
 
 ```bash
 uv sync --extra dev          # install dev extras (pytest, pytest-cov, ruff)
-uv run pytest                # 23 tests
+uv run pytest                # 48 tests
 uv run ruff check .
 uv run ruff format .
 ```
