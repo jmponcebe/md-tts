@@ -428,7 +428,7 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "edge-tts" },
-    { name = "playsound3" },
+    { name = "pygame" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
@@ -443,7 +443,7 @@ requires-dist = [
     { name = "edge-tts", marker = "extra == 'dev'", specifier = ">=7.2.8" },
     { name = "edge-tts", marker = "extra == 'edge'", specifier = ">=7.2.8" },
     { name = "markdown-it-py", specifier = ">=3.0.0" },
-    { name = "playsound3", marker = "extra == 'dev'", specifier = ">=3.3.1" },
+    { name = "pygame", marker = "extra == 'dev'", specifier = ">=2.5" },
     { name = "pygame", marker = "extra == 'edge'", specifier = ">=2.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1" },
@@ -585,18 +585,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d7/f1/e7a6dd94a8d4a5626c03e4e99c87f241ba9e350cd9e6d75123f992427270/packaging-26.2.tar.gz", hash = "sha256:ff452ff5a3e828ce110190feff1178bb1f2ea2281fa2075aadb987c2fb221661", size = 228134, upload-time = "2026-04-24T20:15:23.917Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/df/b2/87e62e8c3e2f4b32e5fe99e0b86d576da1312593b39f47d8ceef365e95ed/packaging-26.2-py3-none-any.whl", hash = "sha256:5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e", size = 100195, upload-time = "2026-04-24T20:15:22.081Z" },
-]
-
-[[package]]
-name = "playsound3"
-version = "3.3.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pywin32", marker = "sys_platform == 'win32'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/6b/93/39f2296a69fe2c70dcc9b9724147ffc9d7f676f67eb3cbad3baa725ae32d/playsound3-3.3.1.tar.gz", hash = "sha256:3f0eb87d5ff2061d07663c4b010b8e7d66c274344712b01d561a0a73447ef41d", size = 608340, upload-time = "2026-01-22T18:05:55.444Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/62/9d/8b97af915bd8a9e2b17b08bb9d62d45cce5c00a28a64b08324bb5895145b/playsound3-3.3.1-py3-none-any.whl", hash = "sha256:8e606115c3630762a7136579ceb25fbf725768a31f7d0bfc2883154d8c50205d", size = 9697, upload-time = "2026-01-22T18:05:53.783Z" },
 ]
 
 [[package]]
