@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from .parser import Block, LangCode, detect_lang, parse_markdown
-from .reader import TTSReader
+from .reader import TTSReader, build_reader
 
 
 def _dominant_lang(blocks: list[Block]) -> LangCode:
@@ -72,7 +72,36 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print available TTS voices on this system and exit.",
     )
+    parser.add_argument(
+        "--backend",
+        choices=["local", "edge"],
+        default="local",
+        help=(
+            "TTS backend: 'local' (pyttsx4, offline, default) or 'edge' "
+            "(Microsoft Edge neural voices, requires internet)."
+        ),
+    )
     return parser
+
+
+def _resolve_lang(text: str, override: str, fallback: LangCode) -> LangCode:
+    """Pick the language to use for ``text``.
+
+    ``--lang es|en`` always wins. Under ``--lang auto`` we run the
+    stop-word detector; if it is inconclusive we fall back to the
+    session's dominant language. The result can still be ``"unknown"``
+    when even the session-level detector cannot classify the document
+    (very short or unsupported language); backends treat that as "use
+    the configured default voice".
+    """
+    if override == "es":
+        return "es"
+    if override == "en":
+        return "en"
+    if not text:
+        return fallback
+    detected = detect_lang(text)
+    return detected if detected in {"es", "en"} else fallback
 
 
 def _skip_announcement(label: str, lang: LangCode) -> str:
@@ -89,24 +118,26 @@ def _render(
     no_pause: bool,
     session_lang: LangCode,
 ) -> None:
-    # NOTE: ``reader.say`` currently ignores its ``lang`` argument and uses the
-    # single session voice. We intentionally do not compute a per-block
-    # language here to avoid implying behavior the reader doesn't deliver.
+    # We pass a per-utterance language to ``reader.say``. The local backend
+    # ignores it (one voice per session, for SAPI5 stability); the edge
+    # backend uses it to pick a neural voice per utterance.
     if block.kind == "text":
-        reader.say(block.content)
+        reader.say(block.content, lang=_resolve_lang(block.content, lang_override, session_lang))
         return
 
     if block.kind == "card":
-        reader.say(block.content)
+        q_lang = _resolve_lang(block.content, lang_override, session_lang)
+        a_lang = _resolve_lang(block.extra, lang_override, session_lang)
+        reader.say(block.content, lang=q_lang)
         if no_pause:
-            reader.say(block.extra)
+            reader.say(block.extra, lang=a_lang)
             return
         print(f"\n{block.raw_preview}")
         try:
             input("    [ENTER to reveal the answer] ")
         except EOFError:
             return
-        reader.say(block.extra)
+        reader.say(block.extra, lang=a_lang)
         return
 
     # code / table — pick the announcement language from the explicit override
@@ -124,7 +155,7 @@ def _render(
         label = "Tabla" if announce_lang == "es" else f"Table ({block.info})"
 
     if no_pause:
-        reader.say(_skip_announcement(label, announce_lang))
+        reader.say(_skip_announcement(label, announce_lang), lang=announce_lang)
         return
 
     print(f"\n── {label} ──")
@@ -141,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
 
     if args.list_voices:
-        reader = TTSReader(rate=args.rate)
+        reader = build_reader(args.backend, rate=args.rate)
         for voice_id, name in reader.list_voices():
             print(f"{name}\n  id={voice_id}")
         return 0
@@ -167,7 +198,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         session_lang = _dominant_lang(blocks)
 
-    reader = TTSReader(rate=args.rate, forced_voice=args.voice, lang=session_lang)
+    reader = build_reader(
+        args.backend,
+        rate=args.rate,
+        forced_voice=args.voice,
+        lang=session_lang,
+    )
 
     # Stop the speech engine on Ctrl+C so the current utterance is cut short
     # instead of finishing before the KeyboardInterrupt propagates.

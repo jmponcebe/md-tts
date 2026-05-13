@@ -58,3 +58,7 @@ coverage.xml
 
 # OS
 Thumbs.db
+
+# Local scratch files
+.pr-body.md
+.release-notes.md

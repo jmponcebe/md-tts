@@ -1,6 +1,6 @@
 """Smoke tests for the CLI entrypoint.
 
-The pyttsx4 engine is mocked to avoid touching the OS speech subsystem.
+The TTS backend is mocked to avoid touching the OS speech subsystem.
 """
 
 from __future__ import annotations
@@ -27,25 +27,25 @@ def test_missing_file_returns_2(tmp_path: Path) -> None:
     assert cli.main([str(missing)]) == 2
 
 
-@patch("md_tts.cli.TTSReader")
-def test_no_pause_runs_through_sample(reader_cls: MagicMock, tmp_path: Path) -> None:
+@patch("md_tts.cli.build_reader")
+def test_no_pause_runs_through_sample(build_reader: MagicMock, tmp_path: Path) -> None:
     md = tmp_path / "in.md"
     md.write_text(
         "# Hola\n\nUn párrafo simple en español.\n\n```python\nprint('hi')\n```\n\nFinal.\n",
         encoding="utf-8",
     )
-    instance = reader_cls.return_value
+    instance = build_reader.return_value
     assert cli.main([str(md), "--no-pause"]) == 0
-    # Reader was instantiated once and say() called at least for prose + skip notice.
-    assert reader_cls.call_count == 1
+    # Reader was built once and say() called at least for prose + skip notice.
+    assert build_reader.call_count == 1
     assert instance.say.called
 
 
-@patch("md_tts.cli.TTSReader")
+@patch("md_tts.cli.build_reader")
 def test_list_voices_without_path(
-    reader_cls: MagicMock, capsys: pytest.CaptureFixture[str]
+    build_reader: MagicMock, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    reader_cls.return_value.list_voices.return_value = [
+    build_reader.return_value.list_voices.return_value = [
         ("id-1", "Helena (Spanish)"),
         ("id-2", "Zira (English)"),
     ]
