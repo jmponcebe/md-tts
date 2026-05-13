@@ -75,16 +75,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolve_lang(text: str, override: str) -> LangCode:
-    if override == "es":
-        return "es"
-    if override == "en":
-        return "en"
-    if not text:
-        return "unknown"
-    return detect_lang(text)
-
-
 def _skip_announcement(label: str, lang: LangCode) -> str:
     if lang == "es":
         return f"Omitiendo {label.lower()}."
@@ -99,23 +89,24 @@ def _render(
     no_pause: bool,
     session_lang: LangCode,
 ) -> None:
+    # NOTE: ``reader.say`` currently ignores its ``lang`` argument and uses the
+    # single session voice. We intentionally do not compute a per-block
+    # language here to avoid implying behavior the reader doesn't deliver.
     if block.kind == "text":
-        reader.say(block.content, lang=_resolve_lang(block.content, lang_override))
+        reader.say(block.content)
         return
 
     if block.kind == "card":
-        question_lang = _resolve_lang(block.content, lang_override)
-        reader.say(block.content, lang=question_lang)
-        answer_lang = _resolve_lang(block.extra, lang_override)
+        reader.say(block.content)
         if no_pause:
-            reader.say(block.extra, lang=answer_lang)
+            reader.say(block.extra)
             return
         print(f"\n{block.raw_preview}")
         try:
             input("    [ENTER to reveal the answer] ")
         except EOFError:
             return
-        reader.say(block.extra, lang=answer_lang)
+        reader.say(block.extra)
         return
 
     # code / table — pick the announcement language from the explicit override
@@ -133,7 +124,7 @@ def _render(
         label = "Tabla" if announce_lang == "es" else f"Table ({block.info})"
 
     if no_pause:
-        reader.say(_skip_announcement(label, announce_lang), lang=announce_lang)
+        reader.say(_skip_announcement(label, announce_lang))
         return
 
     print(f"\n── {label} ──")

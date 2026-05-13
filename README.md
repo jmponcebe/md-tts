@@ -29,7 +29,7 @@ It is intentionally minimal. It targets developers who want to revise their own 
 - 🎴 **Flashcard mode** for `<details><summary>Q</summary>A</details>` (speak Q, wait, speak A).
 - 🌍 **ES/EN dominant-language detection**: the parser picks a single session voice based on the document’s dominant language. Per-paragraph voice switching was tried and proved unstable on SAPI5; it lives in the roadmap.
 - 🎧 **Podcast mode** (`--no-pause`) that announces skipped blocks in the chosen language instead of waiting.
-- 🔊 **Cross-platform TTS** via `pyttsx3` (SAPI5 on Windows, NSSpeechSynthesizer on macOS, eSpeak on Linux). No cloud account, no API key.
+- 🔊 **Cross-platform TTS** via `pyttsx4` (SAPI5 on Windows, NSSpeechSynthesizer on macOS, eSpeak on Linux). No cloud account, no API key.
 - 🧪 **Unit tested** on Python 3.11 / 3.12 / 3.13 (see [CI](https://github.com/jmponcebe/md-tts/actions/workflows/ci.yml)).
 
 ## Installation
