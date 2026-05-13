@@ -2,7 +2,11 @@
 
 > Text-to-speech for technical Markdown, with interactive pauses on code blocks.
 
-**Status**: 🚧 early development (v0.0.1). Setup placeholder — code lands in next PRs.
+[![Status](https://img.shields.io/badge/status-work%20in%20progress-orange.svg)](https://github.com/jmponcebe/md-tts)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+**🚧 Work in progress — v0.0.1 scaffolding.** The CLI is not yet runnable; we are landing the implementation across multiple PRs (`feat/parser`, `feat/tts-reader`, `feat/cli`, `ci/github-actions`, `docs/readme`). First usable release tagged as `v0.1.0`.
 
 ## Why this exists
 
