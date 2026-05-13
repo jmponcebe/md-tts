@@ -1,0 +1,191 @@
+"""Render a parsed Markdown document to a single MP3 file.
+
+Only the Edge backend is supported for export: it produces MP3 audio natively,
+and concatenating MP3 frames byte-by-byte is well-defined (no re-encoding).
+
+For each block we synthesize one MP3 segment and append it to the output:
+
+- ``text`` / ``card`` Q&A: the actual content.
+- ``code`` / ``table``: a localized "skipping <kind>" announcement, so the
+    listener knows something was omitted when listening offline.
+- Between a card's question and answer we insert a short silence (~1.5 s)
+    so the listener has a moment to recall the answer before it plays.
+
+The silence is generated once per call by asking Edge to synthesize a short
+inaudible phrase wrapped in heavy padding; we fall back to a tiny built-in
+silent MP3 frame if synthesis fails. MP3 silence is small (a few KB) and
+doesn't bloat the final file.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Iterable
+from pathlib import Path
+
+from ._edge_reader import (
+    DEFAULT_EN_VOICE,
+    DEFAULT_ES_VOICE,
+    DEFAULT_VOICE,
+    _rate_to_edge,
+)
+from .parser import Block, LangCode
+
+# 1.5 s of silence at 24 kHz mono 48 kbps MP3 — generated once with edge-tts
+# from a pause-only utterance and stored as a base64 constant would be ideal,
+# but to keep the package source-only we re-synthesize a silence segment from
+# Edge at runtime (see ``_synthesize_silence``). This constant is the
+# fallback: a single empty MP3 frame, valid but inaudible.
+_EMPTY_MP3_FRAME = b"\xff\xfb\x10\xc4" + b"\x00" * 415
+
+
+def _voice_for(lang: LangCode, forced: str | None) -> str:
+    if forced:
+        return forced
+    if lang == "es":
+        return DEFAULT_ES_VOICE
+    if lang == "en":
+        return DEFAULT_EN_VOICE
+    return DEFAULT_VOICE
+
+
+def _skip_announcement(kind: str, info: str, lang: LangCode) -> str:
+    """Localized announcement for a skipped non-text block."""
+    if lang == "es":
+        if kind == "code":
+            return "Omitiendo bloque de código."
+        return "Omitiendo tabla."
+    if kind == "code":
+        return f"Skipping code block ({info})." if info else "Skipping code block."
+    return "Skipping table."
+
+
+async def _synthesize(text: str, voice: str, rate: str) -> bytes:
+    """Stream an Edge TTS utterance into bytes (MP3 frames)."""
+    import edge_tts
+
+    communicate = edge_tts.Communicate(text, voice=voice, rate=rate)
+    chunks: list[bytes] = []
+    async for ev in communicate.stream():
+        if ev.get("type") == "audio":
+            chunks.append(ev["data"])
+    return b"".join(chunks)
+
+
+async def _synthesize_silence(voice: str, rate: str, seconds: float = 3.0) -> bytes:
+    """Approximate ``seconds`` of silence by synthesizing a comma-padded prompt.
+
+    Edge TTS doesn't expose raw silence generation, but a sentence built from
+    commas produces a natural prosodic pause. We tune the length to roughly
+    match ``seconds``; small drift is acceptable for the "recall the answer"
+    gap between a card's question and answer.
+    """
+    # A comma adds ~250-300 ms of silence depending on the voice. Twelve
+    # commas yields ~3 s. Voice is irrelevant since nothing is voiced.
+    text = ", , , , , , , , , , , ,"
+    try:
+        return await _synthesize(text, voice, rate)
+    except Exception:
+        # Fall back to a single silent MP3 frame repeated until we approximate
+        # ``seconds`` of audio. Each frame is ~26 ms at 48 kbps.
+        frames = max(1, int(seconds / 0.026))
+        return _EMPTY_MP3_FRAME * frames
+
+
+def _resolve_lang_for_block(block: Block, override: str, fallback: LangCode) -> LangCode:
+    """Pick the language for a block's text.
+
+    Mirrors ``cli._resolve_lang`` but kept local to avoid the CLI ↔ exporter
+    dependency cycle.
+    """
+    from .parser import detect_lang
+
+    if override == "es":
+        return "es"
+    if override == "en":
+        return "en"
+    if not block.content:
+        return fallback
+    detected = detect_lang(block.content)
+    return detected if detected in {"es", "en"} else fallback
+
+
+async def _export_async(
+    blocks: Iterable[Block],
+    output: Path,
+    *,
+    lang_override: str,
+    session_lang: LangCode,
+    rate: int,
+    forced_voice: str | None,
+) -> int:
+    """Write all blocks as concatenated MP3 to ``output``. Returns segment count."""
+    rate_str = _rate_to_edge(rate)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    segments = 0
+
+    # We open the output file once and stream bytes as each segment finishes.
+    # MP3 frames are independently decodable so plain concatenation works.
+    with output.open("wb") as out:
+        for block in blocks:
+            if block.kind == "text":
+                if not block.content.strip():
+                    continue
+                lang = _resolve_lang_for_block(block, lang_override, session_lang)
+                voice = _voice_for(lang, forced_voice)
+                out.write(await _synthesize(block.content, voice, rate_str))
+                segments += 1
+                continue
+
+            if block.kind == "card":
+                q_lang = _resolve_lang_for_block(block, lang_override, session_lang)
+                # The answer's language is detected on ``extra``, not ``content``.
+                a_block = Block(kind="text", content=block.extra, raw_preview=block.extra)
+                a_lang = _resolve_lang_for_block(a_block, lang_override, session_lang)
+
+                q_voice = _voice_for(q_lang, forced_voice)
+                a_voice = _voice_for(a_lang, forced_voice)
+                if block.content.strip():
+                    out.write(await _synthesize(block.content, q_voice, rate_str))
+                    segments += 1
+                out.write(await _synthesize_silence(q_voice, rate_str))
+                if block.extra.strip():
+                    out.write(await _synthesize(block.extra, a_voice, rate_str))
+                    segments += 1
+                continue
+
+            # code / table — announce the skip in the session language.
+            if lang_override == "es":
+                announce_lang: LangCode = "es"
+            elif lang_override == "en":
+                announce_lang = "en"
+            else:
+                announce_lang = "es" if session_lang == "es" else "en"
+            text = _skip_announcement(block.kind, block.info, announce_lang)
+            voice = _voice_for(announce_lang, forced_voice)
+            out.write(await _synthesize(text, voice, rate_str))
+            segments += 1
+
+    return segments
+
+
+def export_to_mp3(
+    blocks: Iterable[Block],
+    output: Path,
+    *,
+    lang_override: str = "auto",
+    session_lang: LangCode = "unknown",
+    rate: int = 185,
+    forced_voice: str | None = None,
+) -> int:
+    """Synchronous entry point. Returns the number of segments written."""
+    return asyncio.run(
+        _export_async(
+            blocks,
+            output,
+            lang_override=lang_override,
+            session_lang=session_lang,
+            rate=rate,
+            forced_voice=forced_voice,
+        )
+    )

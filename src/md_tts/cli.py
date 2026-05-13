@@ -104,6 +104,18 @@ def _build_parser() -> argparse.ArgumentParser:
             "(Microsoft Edge neural voices, requires internet)."
         ),
     )
+    parser.add_argument(
+        "--export",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Render the document to a single MP3 file at PATH and exit. "
+            "Requires '--backend edge'. Skipped code/table blocks are "
+            "replaced by short spoken announcements; <details> cards add a "
+            "~3 s silence between question and answer."
+        ),
+    )
     return parser
 
 
@@ -282,6 +294,30 @@ def main(argv: list[str] | None = None) -> int:
         session_lang = "en"
     else:
         session_lang = _dominant_lang(blocks)
+
+    if args.export is not None:
+        if args.backend != "edge":
+            print(
+                "error: --export requires --backend edge (Edge TTS produces MP3 natively)",
+                file=sys.stderr,
+            )
+            return 2
+        from .exporter import export_to_mp3
+
+        try:
+            segments = export_to_mp3(
+                blocks,
+                args.export,
+                lang_override=args.lang,
+                session_lang=session_lang,
+                rate=args.rate,
+                forced_voice=args.voice,
+            )
+        except ImportError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(f"wrote {segments} segments to {args.export}")
+        return 0
 
     reader = build_reader(
         args.backend,

@@ -82,6 +82,11 @@ md-tts notes.md --backend edge
 
 # Inspect the Edge voice catalogue:
 md-tts --backend edge --list-voices
+
+# Export to MP3 for offline listening (commute, gym, etc.):
+md-tts notes.md --backend edge --export notes.mp3
+# Code blocks become short "skipping code block" announcements; <details>
+# cards keep their question + 3 s silence + answer pattern.
 ```
 
 You can also run the module directly:
