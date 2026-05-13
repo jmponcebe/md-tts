@@ -8,7 +8,7 @@ For each block we synthesize one MP3 segment and append it to the output:
 - ``text`` / ``card`` Q&A: the actual content.
 - ``code`` / ``table``: a localized "skipping <kind>" announcement, so the
     listener knows something was omitted when listening offline.
-- Between a card's question and answer we insert a short silence (~1.5 s)
+- Between a card's question and answer we insert a short silence (~3 s)
     so the listener has a moment to recall the answer before it plays.
 
 The silence is generated once per call by asking Edge to synthesize a short
@@ -20,6 +20,7 @@ doesn't bloat the final file.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -31,11 +32,9 @@ from ._edge_reader import (
 )
 from .parser import Block, LangCode
 
-# 1.5 s of silence at 24 kHz mono 48 kbps MP3 — generated once with edge-tts
-# from a pause-only utterance and stored as a base64 constant would be ideal,
-# but to keep the package source-only we re-synthesize a silence segment from
-# Edge at runtime (see ``_synthesize_silence``). This constant is the
-# fallback: a single empty MP3 frame, valid but inaudible.
+# 3 s of silence approximated by edge-tts itself (see ``_synthesize_silence``).
+# This constant is the fallback when synthesis fails: a single empty MP3 frame
+# repeated to roughly match the requested duration.
 _EMPTY_MP3_FRAME = b"\xff\xfb\x10\xc4" + b"\x00" * 415
 
 
@@ -119,53 +118,77 @@ async def _export_async(
     rate: int,
     forced_voice: str | None,
 ) -> int:
-    """Write all blocks as concatenated MP3 to ``output``. Returns segment count."""
+    """Write all blocks as concatenated MP3 to ``output``. Returns segment count.
+
+    We write to a sibling temp file and atomically rename on success so that
+    a partial/failed run never overwrites a previously valid MP3.
+    """
     rate_str = _rate_to_edge(rate)
     output.parent.mkdir(parents=True, exist_ok=True)
     segments = 0
 
-    # We open the output file once and stream bytes as each segment finishes.
-    # MP3 frames are independently decodable so plain concatenation works.
-    with output.open("wb") as out:
-        for block in blocks:
-            if block.kind == "text":
-                if not block.content.strip():
+    # Cache silence bytes per (voice, rate) so a deck-style document with many
+    # cards only pays one Edge round-trip for the Q/A gap.
+    silence_cache: dict[tuple[str, str], bytes] = {}
+
+    async def _get_silence(voice: str) -> bytes:
+        key = (voice, rate_str)
+        if key not in silence_cache:
+            silence_cache[key] = await _synthesize_silence(voice, rate_str)
+        return silence_cache[key]
+
+    tmp_path = output.with_name(output.name + ".part")
+    try:
+        with tmp_path.open("wb") as out:
+            for block in blocks:
+                if block.kind == "text":
+                    if not block.content.strip():
+                        continue
+                    lang = _resolve_lang_for_block(block, lang_override, session_lang)
+                    voice = _voice_for(lang, forced_voice)
+                    out.write(await _synthesize(block.content, voice, rate_str))
+                    segments += 1
                     continue
-                lang = _resolve_lang_for_block(block, lang_override, session_lang)
-                voice = _voice_for(lang, forced_voice)
-                out.write(await _synthesize(block.content, voice, rate_str))
+
+                if block.kind == "card":
+                    q_lang = _resolve_lang_for_block(block, lang_override, session_lang)
+                    # The answer's language is detected on ``extra``, not ``content``.
+                    a_block = Block(kind="text", content=block.extra, raw_preview=block.extra)
+                    a_lang = _resolve_lang_for_block(a_block, lang_override, session_lang)
+
+                    q_voice = _voice_for(q_lang, forced_voice)
+                    a_voice = _voice_for(a_lang, forced_voice)
+                    if block.content.strip():
+                        out.write(await _synthesize(block.content, q_voice, rate_str))
+                        segments += 1
+                    out.write(await _get_silence(q_voice))
+                    if block.extra.strip():
+                        out.write(await _synthesize(block.extra, a_voice, rate_str))
+                        segments += 1
+                    continue
+
+                # code / table — announce the skip in the session language.
+                if lang_override == "es":
+                    announce_lang: LangCode = "es"
+                elif lang_override == "en":
+                    announce_lang = "en"
+                else:
+                    announce_lang = "es" if session_lang == "es" else "en"
+                text = _skip_announcement(block.kind, block.info, announce_lang)
+                voice = _voice_for(announce_lang, forced_voice)
+                out.write(await _synthesize(text, voice, rate_str))
                 segments += 1
-                continue
+    except BaseException:
+        # Best-effort cleanup; leaving a stray .part is preferable to clobbering
+        # an existing valid output file.
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        raise
 
-            if block.kind == "card":
-                q_lang = _resolve_lang_for_block(block, lang_override, session_lang)
-                # The answer's language is detected on ``extra``, not ``content``.
-                a_block = Block(kind="text", content=block.extra, raw_preview=block.extra)
-                a_lang = _resolve_lang_for_block(a_block, lang_override, session_lang)
+    # Atomic replace on POSIX; on Windows os.replace also overwrites atomically.
+    import os
 
-                q_voice = _voice_for(q_lang, forced_voice)
-                a_voice = _voice_for(a_lang, forced_voice)
-                if block.content.strip():
-                    out.write(await _synthesize(block.content, q_voice, rate_str))
-                    segments += 1
-                out.write(await _synthesize_silence(q_voice, rate_str))
-                if block.extra.strip():
-                    out.write(await _synthesize(block.extra, a_voice, rate_str))
-                    segments += 1
-                continue
-
-            # code / table — announce the skip in the session language.
-            if lang_override == "es":
-                announce_lang: LangCode = "es"
-            elif lang_override == "en":
-                announce_lang = "en"
-            else:
-                announce_lang = "es" if session_lang == "es" else "en"
-            text = _skip_announcement(block.kind, block.info, announce_lang)
-            voice = _voice_for(announce_lang, forced_voice)
-            out.write(await _synthesize(text, voice, rate_str))
-            segments += 1
-
+    os.replace(tmp_path, output)
     return segments
 
 
