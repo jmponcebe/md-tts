@@ -1,72 +1,133 @@
 # md-tts
 
-> Text-to-speech for technical Markdown, with interactive pauses on code blocks.
+> Listen to technical Markdown out loud, with interactive pauses on code blocks.
 
-[![Status](https://img.shields.io/badge/status-work%20in%20progress-orange.svg)](https://github.com/jmponcebe/md-tts)
+[![CI](https://github.com/jmponcebe/md-tts/actions/workflows/ci.yml/badge.svg)](https://github.com/jmponcebe/md-tts/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Style: ruff](https://img.shields.io/badge/style-ruff-orange.svg)](https://github.com/astral-sh/ruff)
 
-**🚧 Work in progress — v0.0.1 scaffolding.** The CLI is not yet runnable; we are landing the implementation across multiple PRs (`feat/parser`, `feat/tts-reader`, `feat/cli`, `ci/github-actions`, `docs/readme`). First usable release tagged as `v0.1.0`.
+`md-tts` reads a Markdown file aloud and **stops on every code block, table, image, math block and flashcard** so you can actually look at the screen and study. It also recognises `<details><summary>Q</summary>A</details>` blocks as flashcards (question → wait → answer) and auto-detects Spanish/English per paragraph to pick a sensible voice.
+
+A `--no-pause` "podcast mode" is included for when you just want continuous playback in the background (commute, gym): instead of waiting on code blocks, it announces them and moves on.
 
 ## Why this exists
 
-I wanted to listen to my technical Markdown notes (interview prep, learning material) while away from the keyboard. I tried 8+ existing TTS tools (Speechify, NaturalReader, VoxTrack for Obsidian, Study MD Desk, Read Aloud Chrome extension, AWS Polly with SSML, etc.). None of them did exactly what I needed:
+Existing TTS tools for Markdown either:
 
-- **Generic TTS tools** (Speechify, NaturalReader) read code blocks as if they were prose. Painful.
-- **Markdown-aware tools** (VoxTrack, Study MD Desk) silently skip code blocks. Better, but you miss the code entirely.
-- **SSML-based pipelines** (AWS Polly, Azure) support `<break>` tags for silence, but cannot wait for user input.
+- treat code blocks as silence and skip them, leaving the listener confused about what just happened;
+- read code character-by-character as if it were prose (`open-paren-self-comma-x`), which is unusable; or
+- support SSML pauses but not **interactive** pauses where playback waits for the listener.
 
-What I actually wanted: read the prose, **stop on every code block / table / image, show it on screen, and wait for me to press ENTER before continuing**. So I built it.
+After testing 8+ tools (Speechify, NaturalReader, Study MD Desk, VoxTrack and several SSML-based pipelines) nothing offered the combination of *parse Markdown structure → speak prose → stop on code → wait for me*. `md-tts` is a small Python CLI that does exactly that.
 
-See [`docs/existing_tools_research.md`](docs/existing_tools_research.md) (coming soon) for the full landscape.
+It is intentionally minimal. It targets developers who want to revise their own technical notes while away from the keyboard.
 
-## Planned features (v0.1.0)
+## Features
 
-- ✅ Interactive pause on code blocks, tables, images, math blocks
-- ✅ Flashcard mode: `<details><summary>Q</summary>A</details>` → reads Q, waits, reads A
-- ✅ Auto language detection (ES/EN) per paragraph, switches voice accordingly
-- ✅ Podcast mode (`--no-pause`): read everything linearly with a quick "[skipping code block]" mention
-- ✅ Offline TTS (Windows SAPI5 / macOS AVSpeech / Linux eSpeak via pyttsx3)
-- ✅ Configurable rate, voice, language
+- 🛑 **Interactive pauses** on code blocks, tables, images and math blocks.
+- 🎴 **Flashcard mode** for `<details><summary>Q</summary>A</details>` (speak Q, wait, speak A).
+- 🌍 **ES/EN auto-detection** per paragraph; voice switches accordingly when the OS has both.
+- 🎧 **Podcast mode** (`--no-pause`) that announces skipped blocks instead of waiting.
+- 🔊 **Cross-platform TTS** via `pyttsx3` (SAPI5 on Windows, NSSpeechSynthesizer on macOS, eSpeak on Linux). No cloud account, no API key.
+- 🧪 **22 unit tests**, CI on Python 3.11 / 3.12 / 3.13.
 
-## Install
+## Installation
+
+`md-tts` is not yet on PyPI. Install from source:
 
 ```bash
-# From source (during development)
 git clone https://github.com/jmponcebe/md-tts.git
 cd md-tts
-uv venv && uv sync
+uv sync          # or: pip install -e .
 ```
 
-PyPI release coming after v0.1.0 stabilizes.
+> On Linux you also need `espeak`: `sudo apt-get install espeak libespeak1`.
 
 ## Usage
 
 ```bash
-# Interactive (default)
-md-tts path/to/file.md
+# Default: interactive — ENTER skips each code/table/image/card.
+md-tts notes.md
 
-# Podcast mode (no pauses)
-md-tts path/to/file.md --no-pause
+# Podcast mode: never wait, just announce skipped blocks.
+md-tts notes.md --no-pause
 
-# Force language and speed
-md-tts path/to/file.md --lang es --rate 200
+# Force a language (no auto-detect):
+md-tts notes.md --lang es
 
-# List available TTS voices
-md-tts --list-voices
+# Force a specific voice by id (use --list-voices to discover them):
+md-tts notes.md --voice "Microsoft Helena Desktop"
+
+# Tune speed:
+md-tts notes.md --rate 220
+
+# Inspect voices available on this system:
+md-tts --list-voices anything.md
 ```
 
-## Project layout
+You can also run the module directly:
+
+```bash
+python -m md_tts notes.md
+```
+
+### Markdown features supported
+
+| Markdown construct | Behaviour |
+| --- | --- |
+| Headings | Spoken with `Chapter:` / `Section:` prefix (or `Capítulo:` in Spanish). |
+| Paragraphs | Spoken as prose. |
+| Inline code `` ` ` `` | Audibly marked (`código <name>`). |
+| Fenced code blocks | Pause + print to terminal. |
+| Tables | Pause + print summary (N rows). |
+| Images | Pause + announce alt text. |
+| Math blocks (`$$ ... $$`) | Pause. |
+| Lists | Spoken as `Point 1: ..., Point 2: ...`. |
+| Block quotes | Prefixed with `Cita:` / `Quote:`. |
+| HR (`---`) | Spoken as `Separator`. |
+| `<details><summary>Q</summary>A</details>` | Flashcard: speak Q, wait for ENTER, speak A. |
+
+## Architecture
 
 ```text
-md-tts/
-├── src/md_tts/
-│   ├── parser.py    # markdown → Block stream + language detection
-│   ├── reader.py    # pyttsx3 wrapper with per-language voice selection
-│   └── cli.py       # argparse + interactive loop
-└── tests/
+.md file
+   │
+   ▼
+parser.parse_markdown(text)         → Iterator[Block]
+   │                                  kind ∈ {text, code, table, image, math, card}
+   ▼
+cli.run()                           ← argparse + interactive loop
+   │
+   ▼
+reader.TTSReader.say(text, lang=…)  → pyttsx3 (SAPI5 / NSSpeech / eSpeak)
 ```
+
+Three modules, ~600 lines total. The parser builds on top of [markdown-it-py](https://github.com/executablebooks/markdown-it-py) and pre-processes `<details>` HTML blocks with a regex/placeholder trick before parsing, because `markdown-it` treats raw HTML as opaque tokens.
+
+## Roadmap
+
+- [ ] PyPI release (`pip install md-tts`)
+- [ ] Optional cloud TTS backend (ElevenLabs / Polly / Edge TTS) behind a flag
+- [ ] Rewind / skip-back during interactive mode
+- [ ] Persistent "bookmarks" to resume a long document
+- [ ] Better handling of nested lists and footnotes
+
+## Development
+
+```bash
+uv sync                      # install dev extras (pytest, pytest-cov, ruff)
+uv run pytest                # 22 tests
+uv run ruff check .
+uv run ruff format .
+```
+
+Conventional commits, feature branches off `main`, squash-merge by default. See [.github/copilot-instructions.md](.github/copilot-instructions.md) for the full contributor guide.
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Author
+
+[Jose María Ponce Bernabé](https://github.com/jmponcebe). Built as a side-project while studying for AI / Data Engineering interviews — needed a way to revise [PharmaGraphRAG](https://github.com/jmponcebe/PharmaGraphRAG) and [DengueMLOps](https://github.com/jmponcebe/DengueMLOps) notes during commutes.
