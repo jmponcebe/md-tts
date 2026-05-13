@@ -1,6 +1,6 @@
 [project]
 name = "md-tts"
-version = "0.1.0"
+version = "0.2.0"
 description = "Text-to-speech for technical Markdown, with interactive pauses on code blocks."
 readme = "README.md"
 license = { text = "MIT" }
