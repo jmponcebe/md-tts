@@ -137,7 +137,7 @@ The `local` backend uses [`pyttsx4`](https://pypi.org/project/pyttsx4/) (a maint
 - [x] Optional cloud-quality TTS backend (Microsoft Edge neural voices) — v0.2
 - [x] Rewind / skip-back during interactive mode — v0.3
 - [x] MP3 export of an entire document for offline mobile listening — v0.4
-- [ ] PyPI release (`pip install md-tts`)
+- [x] PyPI release (`pip install md-tts`)
 - [ ] Math blocks (`$$ ... $$`) detected as pause points instead of being read as prose
 - [ ] Standalone image blocks announced as `[image: alt-text]` instead of being silently flattened
 - [ ] Bookmarks: persist a per-document position so `--resume` picks up where you left off
