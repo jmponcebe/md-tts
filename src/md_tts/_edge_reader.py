@@ -85,6 +85,7 @@ class EdgeReader:
     _rate_str: str = field(init=False, repr=False)
     _tmp_path: Path | None = field(init=False, default=None, repr=False)
     _paused: bool = field(init=False, default=False, repr=False)
+    _stopped: bool = field(init=False, default=False, repr=False)
 
     def __post_init__(self) -> None:
         self._rate_str = _rate_to_edge(self.rate)
@@ -108,6 +109,7 @@ class EdgeReader:
         if not text.strip():
             return
         self._cleanup_previous()
+        self._stopped = False
         voice = self._voice_for(lang)
         self._tmp_path = asyncio.run(self._synthesize(text, voice))
         self._start_playback(self._tmp_path)
@@ -153,14 +155,14 @@ class EdgeReader:
 
     def wait(self, timeout: float | None = None) -> bool:
         if not self.is_playing():
-            return True
+            return not self._stopped
         deadline = None if timeout is None else time.monotonic() + timeout
         while self.is_playing():
             if deadline is not None and time.monotonic() >= deadline:
                 return False
             time.sleep(0.05)
         self._cleanup_previous()
-        return True
+        return not self._stopped
 
     def pause(self) -> None:
         if not _MIXER_READY or self._paused:
@@ -185,6 +187,7 @@ class EdgeReader:
 
     def stop(self) -> None:
         """Stop current playback and delete the temp file."""
+        self._stopped = True
         self._cleanup_previous()
 
     def list_voices(self) -> list[tuple[str, str]]:

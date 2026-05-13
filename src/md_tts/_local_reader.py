@@ -117,6 +117,9 @@ class LocalReader:
         self._stopping = False
         if self._active_voice:
             self._engine.setProperty("voice", self._active_voice)
+        # Apply any pending rate change now (safe: worker thread is idle).
+        with contextlib.suppress(Exception):
+            self._engine.setProperty("rate", self.rate)
         self._engine.say(text)
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -153,10 +156,18 @@ class LocalReader:
         return
 
     def set_rate(self, rate: int) -> None:
-        """Update the rate. Applies to the next utterance (not the current)."""
+        """Update the rate. Applies to the next utterance (not the current).
+
+        We deliberately defer the ``setProperty`` call until playback has
+        finished: pyttsx4's underlying SAPI5/eSpeak driver may be running
+        on the worker thread, and writing properties concurrently can race.
+        The rate is stored eagerly so the CLI reflects the new value
+        immediately; the engine picks it up before the next ``say()``.
+        """
         self.rate = rate
-        with contextlib.suppress(Exception):
-            self._engine.setProperty("rate", rate)
+        if not self.is_playing():
+            with contextlib.suppress(Exception):
+                self._engine.setProperty("rate", rate)
 
     def stop(self) -> None:
         """Stop any ongoing utterance (useful for SIGINT handlers)."""
