@@ -9,7 +9,7 @@ authors = [
 ]
 keywords = ["tts", "markdown", "text-to-speech", "accessibility", "developer-tools", "cli"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
@@ -38,7 +38,7 @@ dev = [
     "pytest-cov>=4.1",
     "ruff>=0.6",
     "edge-tts>=7.2.8",
-    "playsound3>=3.3.1",
+    "pygame>=2.5",
 ]
 
 [project.scripts]
@@ -48,6 +48,7 @@ md-tts = "md_tts.cli:main"
 Homepage = "https://github.com/jmponcebe/md-tts"
 Repository = "https://github.com/jmponcebe/md-tts"
 Issues = "https://github.com/jmponcebe/md-tts/issues"
+Changelog = "https://github.com/jmponcebe/md-tts/releases"
 
 [build-system]
 requires = ["hatchling"]
