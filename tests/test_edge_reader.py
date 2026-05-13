@@ -33,11 +33,22 @@ def fake_edge_tts(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
 
 @pytest.fixture
 def fake_playsound(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    module = types.ModuleType("playsound3")
-    play = MagicMock()
-    module.playsound = play  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "playsound3", module)
-    return play
+    """Fake ``pygame.mixer.music`` so tests never touch the audio device.
+
+    The fixture name is kept for historical reasons; it now stubs pygame.
+    Returns the music mock so individual tests can assert on its calls.
+    """
+    # Pretend the mixer is already initialised so EdgeReader skips real init.
+    monkeypatch.setattr("md_tts._edge_reader._MIXER_READY", True)
+    pygame_mod = types.ModuleType("pygame")
+    mixer = types.SimpleNamespace()
+    music = MagicMock()
+    music.get_busy.return_value = False
+    mixer.music = music
+    mixer.init = MagicMock()
+    pygame_mod.mixer = mixer  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pygame", pygame_mod)
+    return music
 
 
 def test_rate_to_edge_default() -> None:
@@ -93,7 +104,8 @@ def test_say_invokes_edge_and_playback(fake_edge_tts: MagicMock, fake_playsound:
     assert args[0] == "Hola mundo"
     assert kwargs["voice"].startswith("es-ES")
     assert kwargs["rate"] == "+0%"
-    fake_playsound.assert_called_once()
+    fake_playsound.load.assert_called_once()
+    fake_playsound.play.assert_called_once()
 
 
 def test_say_empty_text_is_noop(fake_edge_tts: MagicMock, fake_playsound: MagicMock) -> None:
@@ -101,7 +113,18 @@ def test_say_empty_text_is_noop(fake_edge_tts: MagicMock, fake_playsound: MagicM
 
     EdgeReader().say("   ", lang="es")
     fake_edge_tts.assert_not_called()
-    fake_playsound.assert_not_called()
+    fake_playsound.play.assert_not_called()
+
+
+def test_pause_resume_use_pygame_music(fake_edge_tts: MagicMock, fake_playsound: MagicMock) -> None:
+    from md_tts._edge_reader import EdgeReader
+
+    reader = EdgeReader()
+    reader.play("Hola", lang="es")
+    reader.pause()
+    fake_playsound.pause.assert_called_once()
+    reader.resume()
+    fake_playsound.unpause.assert_called_once()
 
 
 def test_list_voices(fake_edge_tts: MagicMock, fake_playsound: MagicMock) -> None:

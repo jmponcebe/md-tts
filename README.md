@@ -124,7 +124,7 @@ reader.build_reader(backend)        → LocalReader (pyttsx4) or EdgeReader (edg
 
 Three modules plus per-backend implementations, ~700 lines total. The parser builds on top of [markdown-it-py](https://github.com/executablebooks/markdown-it-py) and pre-processes `<details>` HTML blocks with a regex/placeholder trick before parsing, because `markdown-it` treats raw HTML as opaque tokens.
 
-The `local` backend uses [`pyttsx4`](https://pypi.org/project/pyttsx4/) (a maintained fork of `pyttsx3`) because `pyttsx3 2.99` exhibits a SAPI5 bug on Windows where only the first `runAndWait()` call produces audio. The `edge` backend uses [`edge-tts`](https://pypi.org/project/edge-tts/) to call Microsoft Edge's neural voices over HTTPS (no Microsoft account, no API key) and plays the resulting MP3 with [`playsound3`](https://pypi.org/project/playsound3/). Per-paragraph voice switching works on `edge` because each utterance is an independent HTTP request, with no shared engine state to corrupt.
+The `local` backend uses [`pyttsx4`](https://pypi.org/project/pyttsx4/) (a maintained fork of `pyttsx3`) because `pyttsx3 2.99` exhibits a SAPI5 bug on Windows where only the first `runAndWait()` call produces audio. The `edge` backend uses [`edge-tts`](https://pypi.org/project/edge-tts/) to call Microsoft Edge's neural voices over HTTPS (no Microsoft account, no API key) and plays the resulting MP3 with [`pygame.mixer.music`](https://www.pygame.org/docs/ref/music.html), which exposes real `pause`/`unpause` cross-platform (SDL_mixer under the hood) — that's what enables the SPACE control during a paragraph. Per-paragraph voice switching works on `edge` because each utterance is an independent HTTP request, with no shared engine state to corrupt.
 
 ## Roadmap
 

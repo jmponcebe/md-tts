@@ -25,10 +25,54 @@ BackendName = Literal["local", "edge"]
 
 @runtime_checkable
 class TTSReader(Protocol):
-    """Minimal interface every TTS backend must implement."""
+    """Minimal interface every TTS backend must implement.
 
-    def say(self, text: str, *, lang: LangCode = "unknown") -> None: ...
-    def stop(self) -> None: ...
+    Both backends expose a non-blocking API (``play`` + ``wait``) so the
+    CLI can poll the keyboard while audio plays. The legacy :meth:`say` is
+    preserved as a convenience wrapper that simply plays and waits.
+    """
+
+    rate: int
+
+    def play(self, text: str, *, lang: LangCode = "unknown") -> None:
+        """Start playback of ``text``, returning immediately."""
+        ...
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """Block until current playback finishes or ``timeout`` elapses.
+
+        Returns ``True`` if playback finished naturally, ``False`` if it
+        was interrupted (by :meth:`stop`) or the timeout fired while still
+        playing.
+        """
+        ...
+
+    def is_playing(self) -> bool: ...
+
+    def pause(self) -> None:
+        """Pause current playback if the backend supports it.
+
+        Backends without real pause support (e.g. ``local``) should treat
+        this as a best-effort no-op rather than raising.
+        """
+        ...
+
+    def resume(self) -> None:
+        """Resume playback paused via :meth:`pause`."""
+        ...
+
+    def stop(self) -> None:
+        """Stop current playback immediately."""
+        ...
+
+    def set_rate(self, rate: int) -> None:
+        """Update rate; applies to subsequent utterances."""
+        ...
+
+    def say(self, text: str, *, lang: LangCode = "unknown") -> None:
+        """Blocking convenience: :meth:`play` followed by :meth:`wait`."""
+        ...
+
     def list_voices(self) -> list[tuple[str, str]]: ...
 
 
