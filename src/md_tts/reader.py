@@ -57,8 +57,15 @@ def build_reader(
 
         return LocalReader(rate=rate, forced_voice=forced_voice, lang=lang)
     if backend == "edge":
-        # Import lazily so users on offline boxes never pay for the import.
-        from ._edge_reader import EdgeReader
+        # Imported lazily so users on offline boxes (and anyone who didn't
+        # install the ``edge`` extra) never pay for the import.
+        try:
+            from ._edge_reader import EdgeReader
+        except ImportError as exc:  # pragma: no cover - install-time path
+            raise ImportError(
+                "The 'edge' backend requires the optional dependencies. "
+                "Install them with: pip install 'md-tts[edge]'"
+            ) from exc
 
         return EdgeReader(rate=rate, forced_voice=forced_voice)
     raise ValueError(f"Unknown TTS backend: {backend!r}")

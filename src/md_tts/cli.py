@@ -89,8 +89,10 @@ def _resolve_lang(text: str, override: str, fallback: LangCode) -> LangCode:
 
     ``--lang es|en`` always wins. Under ``--lang auto`` we run the
     stop-word detector; if it is inconclusive we fall back to the
-    session's dominant language so each utterance always gets a usable
-    label, never ``"unknown"``.
+    session's dominant language. The result can still be ``"unknown"``
+    when even the session-level detector cannot classify the document
+    (very short or unsupported language); backends treat that as "use
+    the configured default voice".
     """
     if override == "es":
         return "es"

@@ -62,7 +62,6 @@ class EdgeReader:
     rate: int = 185
     forced_voice: str | None = None
     _rate_str: str = field(init=False, repr=False)
-    _stop_event: asyncio.Event | None = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
         self._rate_str = _rate_to_edge(self.rate)

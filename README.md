@@ -45,6 +45,12 @@ uv sync --extra dev      # installs runtime + pytest/ruff (or: pip install -e ".
 
 > On Linux you also need `espeak`: `sudo apt-get install espeak libespeak1`.
 
+The optional Edge neural-voice backend has its own extra so the default install stays fully offline:
+
+```bash
+uv sync --extra edge     # or: pip install -e ".[edge]"
+```
+
 ## Usage
 
 ```bash

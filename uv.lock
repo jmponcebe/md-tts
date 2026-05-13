@@ -421,30 +421,36 @@ name = "md-tts"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "edge-tts" },
     { name = "markdown-it-py" },
-    { name = "playsound3" },
     { name = "pyttsx4" },
 ]
 
 [package.optional-dependencies]
 dev = [
+    { name = "edge-tts" },
+    { name = "playsound3" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
+edge = [
+    { name = "edge-tts" },
+    { name = "playsound3" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "edge-tts", specifier = ">=7.2.8" },
+    { name = "edge-tts", marker = "extra == 'dev'", specifier = ">=7.2.8" },
+    { name = "edge-tts", marker = "extra == 'edge'", specifier = ">=7.2.8" },
     { name = "markdown-it-py", specifier = ">=3.0.0" },
-    { name = "playsound3", specifier = ">=3.3.1" },
+    { name = "playsound3", marker = "extra == 'dev'", specifier = ">=3.3.1" },
+    { name = "playsound3", marker = "extra == 'edge'", specifier = ">=3.3.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1" },
     { name = "pyttsx4", specifier = ">=3.0.15" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["edge", "dev"]
 
 [[package]]
 name = "mdurl"
