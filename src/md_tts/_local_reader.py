@@ -16,6 +16,7 @@ platforms (SAPI5 / NSSpeechSynthesizer / eSpeak).
 from __future__ import annotations
 
 import contextlib
+import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -64,6 +65,8 @@ class LocalReader:
     lang: LangCode = "unknown"
     _engine: Engine = field(init=False, repr=False)
     _active_voice: str | None = field(init=False, default=None, repr=False)
+    _thread: threading.Thread | None = field(init=False, default=None, repr=False)
+    _stopping: bool = field(init=False, default=False, repr=False)
 
     def __post_init__(self) -> None:
         self._engine = pyttsx4.init()
@@ -94,25 +97,72 @@ class LocalReader:
         return [(getattr(v, "id", ""), getattr(v, "name", "")) for v in voices]
 
     def say(self, text: str, *, lang: LangCode = "unknown") -> None:
-        """Speak ``text`` synchronously.
+        """Blocking convenience: :meth:`play` then :meth:`wait`."""
+        self.play(text, lang=lang)
+        self.wait()
 
-        ``lang`` is accepted for API compatibility but ignored here: the
-        active voice is fixed at construction time because per-utterance
-        voice switching is unreliable on Windows SAPI5.
+    def play(self, text: str, *, lang: LangCode = "unknown") -> None:
+        """Start an utterance in a background thread.
 
-        We still re-apply the voice on every utterance as a defensive
-        measure against unrelated SAPI5 quirks observed when the engine is
-        reused for long sessions.
+        ``lang`` is accepted for API compatibility but ignored: the active
+        voice is fixed at construction time because per-utterance voice
+        switching is unreliable on Windows SAPI5. We re-apply the voice on
+        every utterance as a defensive measure.
         """
         del lang  # voice is fixed at construction time
         if not text.strip():
             return
+        # Wait for any in-flight utterance to finish so we don't pile up.
+        self.wait()
+        self._stopping = False
         if self._active_voice:
             self._engine.setProperty("voice", self._active_voice)
         self._engine.say(text)
-        self._engine.runAndWait()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        # ``runAndWait`` blocks until either all queued utterances are spoken
+        # or ``engine.stop()`` is called from another thread.
+        with contextlib.suppress(Exception):
+            self._engine.runAndWait()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        if self._thread is None:
+            return True
+        self._thread.join(timeout=timeout)
+        finished = not self._thread.is_alive()
+        if finished:
+            self._thread = None
+        return finished and not self._stopping
+
+    def is_playing(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def pause(self) -> None:
+        """Best-effort pause.
+
+        ``pyttsx4`` doesn't expose a true pause primitive, and stopping the
+        engine drops the rest of the utterance with no way to resume from
+        the same position. We document this limitation rather than fake it.
+        """
+        return
+
+    def resume(self) -> None:
+        """No-op counterpart to :meth:`pause`."""
+        return
+
+    def set_rate(self, rate: int) -> None:
+        """Update the rate. Applies to the next utterance (not the current)."""
+        self.rate = rate
+        with contextlib.suppress(Exception):
+            self._engine.setProperty("rate", rate)
 
     def stop(self) -> None:
         """Stop any ongoing utterance (useful for SIGINT handlers)."""
+        self._stopping = True
         with contextlib.suppress(Exception):
             self._engine.stop()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
