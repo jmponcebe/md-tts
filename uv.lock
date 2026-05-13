@@ -147,7 +147,7 @@ wheels = [
 
 [[package]]
 name = "md-tts"
-version = "0.0.1"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "markdown-it-py" },
