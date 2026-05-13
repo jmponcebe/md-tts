@@ -3,14 +3,21 @@
 This module converts a Markdown document into a stream of ``Block`` objects.
 Each block represents either content to be spoken (``text``) or content that
 should trigger an interactive pause when read aloud (``code``, ``table``,
-``image``, ``math``, ``card``).
+``card``).
 
 The ``card`` kind represents an HTML ``<details><summary>Q</summary>A</details>``
 block, which we treat as a flashcard: the question is spoken, the user is
 prompted to continue, then the answer is spoken.
 
-Also exposes ``detect_lang``, a fast stop-word based heuristic to pick a TTS
-voice per paragraph (Spanish vs English).
+Inline images are flattened into the surrounding paragraph (e.g. ``[image: alt]``)
+rather than emitted as standalone blocks. Math blocks are not detected unless a
+dedicated ``markdown-it-py`` plugin is registered; for now they fall through as
+text.
+
+Also exposes ``detect_lang``, a fast stop-word based heuristic for language
+detection. The CLI currently uses this to pick a single voice for the whole
+session (based on the dominant language of the document) rather than swapping
+voices per paragraph, which proved unstable on SAPI5.
 """
 
 from __future__ import annotations
@@ -23,7 +30,8 @@ from typing import Literal
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
-BlockKind = Literal["text", "code", "table", "image", "math", "card"]
+BlockKind = Literal["text", "code", "table", "card"]
+LangCode = Literal["es", "en", "unknown"]
 
 
 @dataclass
@@ -31,13 +39,13 @@ class Block:
     """A single unit of content yielded by :func:`parse_markdown`.
 
     Attributes:
-        kind: One of ``text``, ``code``, ``table``, ``image``, ``math``, ``card``.
+        kind: One of ``text``, ``code``, ``table``, ``card``.
         content: Text to be spoken. Empty for non-text kinds except ``card``,
             where it holds the question.
         raw_preview: Original text shown in the console when an interactive
             pause is triggered.
         info: Auxiliary metadata (e.g. language tag of a code block, ``"N rows"``
-            for tables, ``"math"``).
+            for tables).
         extra: Used by ``card`` to hold the answer text.
     """
 
@@ -110,8 +118,6 @@ _EN_HINTS: frozenset[str] = frozenset(
     }
 )
 
-LangCode = Literal["es", "en", "unknown"]
-
 
 def detect_lang(text: str) -> LangCode:
     """Detect the dominant language of a text snippet.
@@ -136,6 +142,33 @@ def detect_lang(text: str) -> LangCode:
 # --- Helpers ----------------------------------------------------------------
 
 
+# Match emoji and pictographic symbols across the Unicode planes most likely
+# to appear in technical Markdown: emoticons, symbols/pictographs, transport,
+# misc symbols, dingbats, enclosed alphanumerics and the supplemental block.
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001f300-\U0001f6ff"
+    "\U0001f900-\U0001f9ff"
+    "\U0001fa70-\U0001faff"
+    "\U00002600-\U000026ff"
+    "\U00002700-\U000027bf"
+    "\U0001f1e6-\U0001f1ff"
+    "\U0000fe0f"
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def _strip_emojis(text: str) -> str:
+    """Remove emoji characters and collapse whitespace.
+
+    Emojis tend to be read aloud as their Unicode name ("collision symbol"…)
+    which is noisy and confusing. We strip them from the spoken text while
+    leaving them in the printed ``raw_preview``.
+    """
+    return re.sub(r"\s+", " ", _EMOJI_RE.sub("", text)).strip()
+
+
 def _flatten_inline(token: Token) -> str:
     """Flatten a ``markdown-it`` ``inline`` token into a plain TTS-readable string."""
     parts: list[str] = []
@@ -143,8 +176,10 @@ def _flatten_inline(token: Token) -> str:
         if child.type == "text":
             parts.append(child.content)
         elif child.type == "code_inline":
-            # Inline code: mark it audibly so the listener notices.
-            parts.append(f"código {child.content}")
+            # Quote the inline code so it reads as a snippet, without the
+            # noisy "código X" repetition when the content itself contains
+            # the word "código".
+            parts.append(f"'{child.content}'")
         elif child.type == "softbreak":
             parts.append(" ")
         elif child.type == "hardbreak":
@@ -156,11 +191,24 @@ def _flatten_inline(token: Token) -> str:
             "em_close",
             "strong_open",
             "strong_close",
+            "s_open",
+            "s_close",
         }:
             continue
         elif child.type == "image":
-            alt = child.attrs.get("alt", "imagen") if child.attrs else "imagen"
-            parts.append(f"[imagen: {alt}]")
+            # markdown-it-py 3.x stores attrs as list[tuple] OR dict depending on
+            # the token type. Normalise both into a plain dict before lookup.
+            attrs = child.attrs
+            alt = ""
+            if isinstance(attrs, dict):
+                alt = attrs.get("alt", "") or ""
+            elif attrs:
+                alt = dict(attrs).get("alt", "") or ""
+            # Fall back to the alt text held in child.content (markdown-it
+            # populates this with the rendered alt for image tokens).
+            if not alt:
+                alt = (child.content or "").strip()
+            parts.append(f"[imagen: {alt or 'sin descripción'}]")
         elif child.type == "html_inline":
             cleaned = re.sub(r"<[^>]+>", "", child.content)
             if cleaned.strip():
@@ -237,30 +285,38 @@ def parse_markdown(md_text: str) -> Iterator[Block]:
         if tok.type == "heading_open":
             level = int(tok.tag[1])
             inline = tokens[i + 1]
-            text = _flatten_inline(inline)
+            raw_text = _flatten_inline(inline)
+            text = _strip_emojis(raw_text)
             lang = detect_lang(text)
             if lang == "en":
                 prefix = {1: "Chapter: ", 2: "Section: ", 3: "Subsection: "}.get(level, "")
             else:
                 prefix = {1: "Capítulo: ", 2: "Sección: ", 3: "Subsección: "}.get(level, "")
+            spoken = text if text.endswith((".", "!", "?", ":")) else f"{text}."
             yield Block(
                 kind="text",
-                content=f"{prefix}{text}.",
-                raw_preview=f"{'#' * level} {text}",
+                content=f"{prefix}{spoken}",
+                raw_preview=f"{'#' * level} {raw_text}",
             )
             i += 3
             continue
 
         if tok.type == "paragraph_open":
             inline = tokens[i + 1]
-            text = _flatten_inline(inline)
+            raw_text = _flatten_inline(inline)
+            text = _strip_emojis(raw_text)
             if text:
                 if text.strip() in placeholders:
                     q, a = placeholders[text.strip()]
-                    yield Block(kind="card", content=q, raw_preview=f"❓ {q}", extra=a)
+                    yield Block(
+                        kind="card",
+                        content=_strip_emojis(q),
+                        raw_preview=f"❓ {q}",
+                        extra=_strip_emojis(a),
+                    )
                 else:
                     prefix = "Cita: " if state.in_blockquote else ""
-                    yield Block(kind="text", content=f"{prefix}{text}", raw_preview=text)
+                    yield Block(kind="text", content=f"{prefix}{text}", raw_preview=raw_text)
             i += 3
             continue
 
@@ -278,22 +334,43 @@ def parse_markdown(md_text: str) -> Iterator[Block]:
         if tok.type in {"bullet_list_open", "ordered_list_open"}:
             depth = 1
             j = i + 1
-            items: list[str] = []
+            # Track each item with its nesting depth so sub-items get a
+            # sub-point prefix ("Subpunto") instead of being flattened.
+            # We keep both the raw text (for the on-screen preview) and the
+            # emoji-stripped version (for what the engine actually speaks).
+            items: list[tuple[int, str, str]] = []
+            item_depth = 1
             while j < len(tokens) and depth > 0:
                 t = tokens[j]
                 if t.type in {"bullet_list_open", "ordered_list_open"}:
                     depth += 1
+                    item_depth = depth
                 elif t.type in {"bullet_list_close", "ordered_list_close"}:
                     depth -= 1
+                    item_depth = max(depth, 1)
                 elif t.type == "inline" and depth >= 1:
-                    items.append(_flatten_inline(t))
+                    raw = _flatten_inline(t)
+                    items.append((item_depth, raw, _strip_emojis(raw)))
                 j += 1
             if items:
-                spoken = ". ".join(f"Punto {n}: {txt}" for n, txt in enumerate(items, 1))
+                top_n = 0
+                sub_n = 0
+                spoken_parts: list[str] = []
+                preview_parts: list[str] = []
+                for level, raw_txt, spoken_txt in items:
+                    if level <= 1:
+                        top_n += 1
+                        sub_n = 0
+                        spoken_parts.append(f"Punto {top_n}: {spoken_txt}")
+                        preview_parts.append(f"- {raw_txt}")
+                    else:
+                        sub_n += 1
+                        spoken_parts.append(f"Subpunto {sub_n}: {spoken_txt}")
+                        preview_parts.append(f"{'  ' * (level - 1)}- {raw_txt}")
                 yield Block(
                     kind="text",
-                    content=spoken,
-                    raw_preview="\n".join(f"- {it}" for it in items),
+                    content=". ".join(spoken_parts),
+                    raw_preview="\n".join(preview_parts),
                 )
             i = j
             continue
@@ -342,13 +419,9 @@ def parse_markdown(md_text: str) -> Iterator[Block]:
         if tok.type == "html_block":
             cleaned = re.sub(r"<[^>]+>", " ", tok.content)
             cleaned = re.sub(r"\s+", " ", cleaned).strip()
-            if cleaned:
-                yield Block(kind="text", content=cleaned, raw_preview=tok.content.strip())
-            i += 1
-            continue
-
-        if tok.type == "math_block":
-            yield Block(kind="math", content="", raw_preview=tok.content.rstrip(), info="math")
+            spoken = _strip_emojis(cleaned)
+            if spoken:
+                yield Block(kind="text", content=spoken, raw_preview=tok.content.strip())
             i += 1
             continue
 
