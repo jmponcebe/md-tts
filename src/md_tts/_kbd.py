@@ -47,7 +47,12 @@ def raw_terminal() -> Iterator[None]:
     import termios
     import tty
 
-    fd = sys.stdin.fileno()
+    try:
+        fd = sys.stdin.fileno()
+    except (AttributeError, OSError, ValueError):
+        # Tests / captured stdin / pseudo-files have no real fileno.
+        yield
+        return
     if not os.isatty(fd):
         # Tests, pipes, CI — nothing to do.
         yield

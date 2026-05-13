@@ -300,7 +300,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # Interactive controls require a real terminal and only make sense when
     # we are not in podcast mode (the user has time to react between blocks).
-    controls = sys.stdin.isatty() and not args.no_pause
+    try:
+        controls = sys.stdin.isatty() and not args.no_pause
+    except (AttributeError, OSError, ValueError):
+        controls = False
     if controls:
         print(
             "[controls: SPACE pause | s skip | n next section | b rewind | +/- rate (next) | q quit]"
