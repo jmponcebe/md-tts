@@ -82,6 +82,11 @@ md-tts notes.md --backend edge
 
 # Inspect the Edge voice catalogue:
 md-tts --backend edge --list-voices
+
+# Export to MP3 for offline listening (commute, gym, etc.):
+md-tts notes.md --backend edge --export notes.mp3
+# Code blocks become short "skipping code block" announcements; <details>
+# cards keep their question + 3 s silence + answer pattern.
 ```
 
 You can also run the module directly:
@@ -133,7 +138,7 @@ The `local` backend uses [`pyttsx4`](https://pypi.org/project/pyttsx4/) (a maint
 - [x] Optional cloud-quality TTS backend (Microsoft Edge neural voices)
 - [ ] Rewind / skip-back during interactive mode
 - [ ] Persistent "bookmarks" to resume a long document
-- [ ] MP3 export of an entire document for offline mobile listening
+- [x] MP3 export of an entire document for offline mobile listening
 
 ## Development
 
