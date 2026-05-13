@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from .parser import Block, LangCode, detect_lang, parse_markdown
-from .reader import TTSReader
+from .reader import TTSReader, build_reader
 
 
 def _dominant_lang(blocks: list[Block]) -> LangCode:
@@ -71,6 +71,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--list-voices",
         action="store_true",
         help="Print available TTS voices on this system and exit.",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=["local", "edge"],
+        default="local",
+        help=(
+            "TTS backend: 'local' (pyttsx4, offline, default) or 'edge' "
+            "(Microsoft Edge neural voices, requires internet)."
+        ),
     )
     return parser
 
@@ -141,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
 
     if args.list_voices:
-        reader = TTSReader(rate=args.rate)
+        reader = build_reader(args.backend, rate=args.rate)
         for voice_id, name in reader.list_voices():
             print(f"{name}\n  id={voice_id}")
         return 0
@@ -167,7 +176,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         session_lang = _dominant_lang(blocks)
 
-    reader = TTSReader(rate=args.rate, forced_voice=args.voice, lang=session_lang)
+    reader = build_reader(
+        args.backend,
+        rate=args.rate,
+        forced_voice=args.voice,
+        lang=session_lang,
+    )
 
     # Stop the speech engine on Ctrl+C so the current utterance is cut short
     # instead of finishing before the KeyboardInterrupt propagates.
