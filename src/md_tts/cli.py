@@ -91,7 +91,14 @@ def _skip_announcement(label: str, lang: LangCode) -> str:
     return f"Skipping {label.lower()}."
 
 
-def _render(block: Block, reader: TTSReader, *, lang_override: str, no_pause: bool) -> None:
+def _render(
+    block: Block,
+    reader: TTSReader,
+    *,
+    lang_override: str,
+    no_pause: bool,
+    session_lang: LangCode,
+) -> None:
     if block.kind == "text":
         reader.say(block.content, lang=_resolve_lang(block.content, lang_override))
         return
@@ -111,8 +118,15 @@ def _render(block: Block, reader: TTSReader, *, lang_override: str, no_pause: bo
         reader.say(block.extra, lang=answer_lang)
         return
 
-    # code / table
-    announce_lang: LangCode = "es" if lang_override == "es" else "en"
+    # code / table — pick the announcement language from the explicit override
+    # when set, otherwise fall back to the session language so a Spanish-leaning
+    # document doesn't get English skip announcements.
+    if lang_override == "es":
+        announce_lang: LangCode = "es"
+    elif lang_override == "en":
+        announce_lang = "en"
+    else:
+        announce_lang = "es" if session_lang == "es" else "en"
     if block.kind == "code":
         label = "Bloque de código" if announce_lang == "es" else f"Code block ({block.info})"
     else:  # table
@@ -174,7 +188,13 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         for block in blocks:
-            _render(block, reader, lang_override=args.lang, no_pause=args.no_pause)
+            _render(
+                block,
+                reader,
+                lang_override=args.lang,
+                no_pause=args.no_pause,
+                session_lang=session_lang,
+            )
     except KeyboardInterrupt:
         print("\n[interrupted]")
         reader.stop()

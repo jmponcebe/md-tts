@@ -98,9 +98,10 @@ class TTSReader:
         The ``lang`` argument is accepted for API compatibility but is
         currently ignored: the active voice is fixed at construction time.
 
-        Re-applying the voice on every utterance is a known workaround for
-        the Windows SAPI5 bug where the engine stops producing audio after
-        the first ``runAndWait()`` call.
+        Switching to ``pyttsx4`` resolved the main SAPI5 issue (audio being
+        dropped after the first ``runAndWait()``). We still re-apply the
+        voice on every utterance as a defensive measure against unrelated
+        SAPI5 quirks observed when the engine is reused for long sessions.
         """
         del lang  # voice is fixed at construction time
         if not text.strip():

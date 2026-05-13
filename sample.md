@@ -4,7 +4,7 @@
 
 Este es un párrafo en **español** con `código inline` y un enlace a [GitHub](https://github.com). El parser debería detectar idioma español automáticamente y elegir una voz acorde.
 
-This second paragraph is written in English to verify that md-tts switches voices per paragraph. It also contains `inline code` and a link to [example.com](https://example.com).
+This second paragraph is written in English. The parser still detects the language per paragraph, but the current reader chooses a single session voice based on the dominant language of the whole document, so you should hear this one in whichever voice md-tts picked at startup.
 
 ---
 

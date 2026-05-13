@@ -14,8 +14,10 @@ rather than emitted as standalone blocks. Math blocks are not detected unless a
 dedicated ``markdown-it-py`` plugin is registered; for now they fall through as
 text.
 
-Also exposes ``detect_lang``, a fast stop-word based heuristic to pick a TTS
-voice per paragraph (Spanish vs English).
+Also exposes ``detect_lang``, a fast stop-word based heuristic for language
+detection. The CLI currently uses this to pick a single voice for the whole
+session (based on the dominant language of the document) rather than swapping
+voices per paragraph, which proved unstable on SAPI5.
 """
 
 from __future__ import annotations
@@ -334,7 +336,9 @@ def parse_markdown(md_text: str) -> Iterator[Block]:
             j = i + 1
             # Track each item with its nesting depth so sub-items get a
             # sub-point prefix ("Subpunto") instead of being flattened.
-            items: list[tuple[int, str]] = []
+            # We keep both the raw text (for the on-screen preview) and the
+            # emoji-stripped version (for what the engine actually speaks).
+            items: list[tuple[int, str, str]] = []
             item_depth = 1
             while j < len(tokens) and depth > 0:
                 t = tokens[j]
@@ -345,23 +349,24 @@ def parse_markdown(md_text: str) -> Iterator[Block]:
                     depth -= 1
                     item_depth = max(depth, 1)
                 elif t.type == "inline" and depth >= 1:
-                    items.append((item_depth, _strip_emojis(_flatten_inline(t))))
+                    raw = _flatten_inline(t)
+                    items.append((item_depth, raw, _strip_emojis(raw)))
                 j += 1
             if items:
                 top_n = 0
                 sub_n = 0
                 spoken_parts: list[str] = []
                 preview_parts: list[str] = []
-                for level, txt in items:
+                for level, raw_txt, spoken_txt in items:
                     if level <= 1:
                         top_n += 1
                         sub_n = 0
-                        spoken_parts.append(f"Punto {top_n}: {txt}")
-                        preview_parts.append(f"- {txt}")
+                        spoken_parts.append(f"Punto {top_n}: {spoken_txt}")
+                        preview_parts.append(f"- {raw_txt}")
                     else:
                         sub_n += 1
-                        spoken_parts.append(f"Subpunto {sub_n}: {txt}")
-                        preview_parts.append(f"{'  ' * (level - 1)}- {txt}")
+                        spoken_parts.append(f"Subpunto {sub_n}: {spoken_txt}")
+                        preview_parts.append(f"{'  ' * (level - 1)}- {raw_txt}")
                 yield Block(
                     kind="text",
                     content=". ".join(spoken_parts),

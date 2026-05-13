@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Style: ruff](https://img.shields.io/badge/style-ruff-orange.svg)](https://github.com/astral-sh/ruff)
 
-`md-tts` reads a Markdown file aloud and **stops on every code block, table and flashcard** so you can actually look at the screen and study. It recognises `<details><summary>Q</summary>A</details>` blocks as flashcards (question → wait → answer) and auto-detects Spanish/English per paragraph to pick a sensible voice.
+`md-tts` reads a Markdown file aloud and **stops on every code block, table and flashcard** so you can actually look at the screen and study. It recognises `<details><summary>Q</summary>A</details>` blocks as flashcards (question → wait → answer) and detects the dominant language of the document (Spanish or English) to pick a single TTS voice for the whole session.
 
 A `--no-pause` "podcast mode" is included for when you just want continuous playback in the background (commute, gym): instead of waiting on code blocks, it announces them and moves on.
 
@@ -27,7 +27,7 @@ It is intentionally minimal. It targets developers who want to revise their own 
 
 - 🛑 **Interactive pauses** on code blocks and tables.
 - 🎴 **Flashcard mode** for `<details><summary>Q</summary>A</details>` (speak Q, wait, speak A).
-- 🌍 **ES/EN auto-detection** per paragraph; voice switches accordingly when the OS has both.
+- 🌍 **ES/EN dominant-language detection**: the parser picks a single session voice based on the document’s dominant language. Per-paragraph voice switching was tried and proved unstable on SAPI5; it lives in the roadmap.
 - 🎧 **Podcast mode** (`--no-pause`) that announces skipped blocks in the chosen language instead of waiting.
 - 🔊 **Cross-platform TTS** via `pyttsx3` (SAPI5 on Windows, NSSpeechSynthesizer on macOS, eSpeak on Linux). No cloud account, no API key.
 - 🧪 **Unit tested** on Python 3.11 / 3.12 / 3.13 (see [CI](https://github.com/jmponcebe/md-tts/actions/workflows/ci.yml)).
@@ -78,7 +78,7 @@ python -m md_tts notes.md
 | --- | --- |
 | Headings | Spoken with `Chapter:` / `Section:` prefix (or `Capítulo:` in Spanish). |
 | Paragraphs | Spoken as prose. |
-| Inline code `` ` ` `` | Audibly marked (`código <name>`). |
+| Inline code `` ` ` `` | Quoted in the spoken output (e.g. `'git status'`) so it’s audibly distinct from prose. |
 | Fenced code blocks | Pause + print to terminal. |
 | Tables | Pause + print rows. |
 | Inline images | Announced inline as `[imagen: alt]`. |
