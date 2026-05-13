@@ -1,6 +1,6 @@
 """Smoke tests for the CLI entrypoint.
 
-The pyttsx3 engine is mocked to avoid touching the OS speech subsystem.
+The pyttsx4 engine is mocked to avoid touching the OS speech subsystem.
 """
 
 from __future__ import annotations
@@ -42,14 +42,22 @@ def test_no_pause_runs_through_sample(reader_cls: MagicMock, tmp_path: Path) -> 
 
 
 @patch("md_tts.cli.TTSReader")
-def test_list_voices_prints_and_exits(
+def test_list_voices_without_path(
     reader_cls: MagicMock, capsys: pytest.CaptureFixture[str]
 ) -> None:
     reader_cls.return_value.list_voices.return_value = [
         ("id-1", "Helena (Spanish)"),
         ("id-2", "Zira (English)"),
     ]
-    assert cli.main(["--list-voices", "anything.md"]) == 0
+    assert cli.main(["--list-voices"]) == 0
     out = capsys.readouterr().out
     assert "Helena" in out
     assert "Zira" in out
+
+
+def test_missing_path_without_list_voices_returns_2(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert cli.main([]) == 2
+    err = capsys.readouterr().err
+    assert "path is required" in err

@@ -23,8 +23,7 @@ def test_detect_lang_basic(text: str, expected: str) -> None:
     assert detect_lang(text) == expected
 
 
-def test_detect_lang_handles_mixed_text() -> None:
-    # When ES and EN are roughly balanced, we expect "unknown".
-    mixed = "El user when está in production using the API"
-    result = detect_lang(mixed)
-    assert result in {"es", "en", "unknown"}
+def test_detect_lang_returns_unknown_when_es_and_en_are_balanced() -> None:
+    # Equal number of ES ("el") and EN ("the") stop-words.
+    balanced = "el dato the user"
+    assert detect_lang(balanced) == "unknown"

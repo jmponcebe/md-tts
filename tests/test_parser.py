@@ -80,7 +80,7 @@ def test_hr_yields_separator() -> None:
 def test_inline_code_is_marked_audibly() -> None:
     text = "Usa el comando `git status` ahora."
     [block] = list(parse_markdown(text))
-    assert "código git status" in block.content
+    assert "'git status'" in block.content
 
 
 def test_empty_input_yields_no_blocks() -> None:
