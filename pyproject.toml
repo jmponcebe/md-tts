@@ -1,0 +1,87 @@
+[project]
+name = "md-tts"
+version = "0.0.1"
+description = "Text-to-speech for technical Markdown, with interactive pauses on code blocks."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Jose María Ponce Bernabé", email = "jmponcebe@gmail.com" }
+]
+keywords = ["tts", "markdown", "text-to-speech", "accessibility", "developer-tools", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "markdown-it-py>=3.0.0",
+    "pyttsx3>=2.99",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+md-tts = "md_tts.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/jmponcebe/md-tts"
+Repository = "https://github.com/jmponcebe/md-tts"
+Issues = "https://github.com/jmponcebe/md-tts/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/md_tts"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    "E501",  # line-too-long (handled by formatter)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q --strict-markers"
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["src/md_tts"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
