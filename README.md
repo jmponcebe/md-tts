@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Style: ruff](https://img.shields.io/badge/style-ruff-orange.svg)](https://github.com/astral-sh/ruff)
 
-`md-tts` reads a Markdown file aloud and **stops on every code block, table, image, math block and flashcard** so you can actually look at the screen and study. It also recognises `<details><summary>Q</summary>A</details>` blocks as flashcards (question → wait → answer) and auto-detects Spanish/English per paragraph to pick a sensible voice.
+`md-tts` reads a Markdown file aloud and **stops on every code block, table and flashcard** so you can actually look at the screen and study. It recognises `<details><summary>Q</summary>A</details>` blocks as flashcards (question → wait → answer) and auto-detects Spanish/English per paragraph to pick a sensible voice.
 
 A `--no-pause` "podcast mode" is included for when you just want continuous playback in the background (commute, gym): instead of waiting on code blocks, it announces them and moves on.
 
@@ -25,12 +25,12 @@ It is intentionally minimal. It targets developers who want to revise their own 
 
 ## Features
 
-- 🛑 **Interactive pauses** on code blocks, tables, images and math blocks.
+- 🛑 **Interactive pauses** on code blocks and tables.
 - 🎴 **Flashcard mode** for `<details><summary>Q</summary>A</details>` (speak Q, wait, speak A).
 - 🌍 **ES/EN auto-detection** per paragraph; voice switches accordingly when the OS has both.
-- 🎧 **Podcast mode** (`--no-pause`) that announces skipped blocks instead of waiting.
+- 🎧 **Podcast mode** (`--no-pause`) that announces skipped blocks in the chosen language instead of waiting.
 - 🔊 **Cross-platform TTS** via `pyttsx3` (SAPI5 on Windows, NSSpeechSynthesizer on macOS, eSpeak on Linux). No cloud account, no API key.
-- 🧪 **22 unit tests**, CI on Python 3.11 / 3.12 / 3.13.
+- 🧪 **Unit tested** on Python 3.11 / 3.12 / 3.13 (see [CI](https://github.com/jmponcebe/md-tts/actions/workflows/ci.yml)).
 
 ## Installation
 
@@ -39,7 +39,7 @@ It is intentionally minimal. It targets developers who want to revise their own 
 ```bash
 git clone https://github.com/jmponcebe/md-tts.git
 cd md-tts
-uv sync          # or: pip install -e .
+uv sync --extra dev      # installs runtime + pytest/ruff (or: pip install -e ".[dev]")
 ```
 
 > On Linux you also need `espeak`: `sudo apt-get install espeak libespeak1`.
@@ -47,7 +47,7 @@ uv sync          # or: pip install -e .
 ## Usage
 
 ```bash
-# Default: interactive — ENTER skips each code/table/image/card.
+# Default: interactive — ENTER skips each code block / table / flashcard.
 md-tts notes.md
 
 # Podcast mode: never wait, just announce skipped blocks.
@@ -57,13 +57,13 @@ md-tts notes.md --no-pause
 md-tts notes.md --lang es
 
 # Force a specific voice by id (use --list-voices to discover them):
-md-tts notes.md --voice "Microsoft Helena Desktop"
+md-tts notes.md --voice "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech\Voices\Tokens\TTS_MS_ES-ES_HELENA_11.0"
 
 # Tune speed:
 md-tts notes.md --rate 220
 
-# Inspect voices available on this system:
-md-tts --list-voices anything.md
+# Inspect voices available on this system (path is optional with this flag):
+md-tts --list-voices
 ```
 
 You can also run the module directly:
@@ -80,13 +80,14 @@ python -m md_tts notes.md
 | Paragraphs | Spoken as prose. |
 | Inline code `` ` ` `` | Audibly marked (`código <name>`). |
 | Fenced code blocks | Pause + print to terminal. |
-| Tables | Pause + print summary (N rows). |
-| Images | Pause + announce alt text. |
-| Math blocks (`$$ ... $$`) | Pause. |
-| Lists | Spoken as `Point 1: ..., Point 2: ...`. |
-| Block quotes | Prefixed with `Cita:` / `Quote:`. |
-| HR (`---`) | Spoken as `Separator`. |
+| Tables | Pause + print rows. |
+| Inline images | Announced inline as `[imagen: alt]`. |
+| Lists | Spoken as `Punto 1: ..., Punto 2: ...` (Spanish prefix used in both languages currently). |
+| Block quotes | Prefixed with `Cita:`. |
+| HR (`---`) | Spoken as `Separador.`. |
 | `<details><summary>Q</summary>A</details>` | Flashcard: speak Q, wait for ENTER, speak A. |
+
+> Math blocks (`$$ ... $$`) and standalone image blocks are not detected as pause points in v0.1.0 — they fall through as text. Adding them is on the [roadmap](#roadmap).
 
 ## Architecture
 
@@ -95,29 +96,32 @@ python -m md_tts notes.md
    │
    ▼
 parser.parse_markdown(text)         → Iterator[Block]
-   │                                  kind ∈ {text, code, table, image, math, card}
+   │                                  kind ∈ {text, code, table, card}
    ▼
 cli.run()                           ← argparse + interactive loop
    │
    ▼
-reader.TTSReader.say(text, lang=…)  → pyttsx3 (SAPI5 / NSSpeech / eSpeak)
+reader.TTSReader.say(text)          → pyttsx4 (SAPI5 / NSSpeech / eSpeak)
 ```
 
 Three modules, ~600 lines total. The parser builds on top of [markdown-it-py](https://github.com/executablebooks/markdown-it-py) and pre-processes `<details>` HTML blocks with a regex/placeholder trick before parsing, because `markdown-it` treats raw HTML as opaque tokens.
 
+We depend on [`pyttsx4`](https://pypi.org/project/pyttsx4/) (a maintained fork of `pyttsx3`) because `pyttsx3 2.99` exhibits a SAPI5 bug on Windows where only the first `runAndWait()` call produces audio.
+
 ## Roadmap
 
+- [ ] Interactive controls during playback: pause / resume, skip paragraph or section, change rate on the fly (requires a non-blocking engine loop on top of `pyttsx4.iterate()`).
 - [ ] PyPI release (`pip install md-tts`)
 - [ ] Optional cloud TTS backend (ElevenLabs / Polly / Edge TTS) behind a flag
 - [ ] Rewind / skip-back during interactive mode
 - [ ] Persistent "bookmarks" to resume a long document
-- [ ] Better handling of nested lists and footnotes
+- [ ] Per-paragraph voice switching (currently disabled; one voice per session due to SAPI5 stability)
 
 ## Development
 
 ```bash
-uv sync                      # install dev extras (pytest, pytest-cov, ruff)
-uv run pytest                # 22 tests
+uv sync --extra dev          # install dev extras (pytest, pytest-cov, ruff)
+uv run pytest                # 23 tests
 uv run ruff check .
 uv run ruff format .
 ```
