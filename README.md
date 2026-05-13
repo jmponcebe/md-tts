@@ -30,6 +30,7 @@ It is intentionally minimal. It targets developers who want to revise their own 
 - 🌍 **ES/EN dominant-language detection**: the parser picks a single session voice based on the document’s dominant language. Per-paragraph voice switching was tried and proved unstable on SAPI5; it lives in the roadmap.
 - 🎧 **Podcast mode** (`--no-pause`) that announces skipped blocks in the chosen language instead of waiting.
 - 🔊 **Cross-platform TTS** via `pyttsx4` (SAPI5 on Windows, NSSpeechSynthesizer on macOS, eSpeak on Linux). No cloud account, no API key.
+- 🌐 **Optional Edge neural voices** (`--backend edge`): natural-sounding Microsoft voices, picks a voice per paragraph based on the detected language. Requires internet.
 - 🧪 **Unit tested** on Python 3.11 / 3.12 / 3.13 (see [CI](https://github.com/jmponcebe/md-tts/actions/workflows/ci.yml)).
 
 ## Installation
@@ -64,6 +65,17 @@ md-tts notes.md --rate 220
 
 # Inspect voices available on this system (path is optional with this flag):
 md-tts --list-voices
+
+# Switch to Microsoft Edge neural voices (requires internet, sounds much better):
+md-tts notes.md --backend edge
+
+# Edge mode auto-picks an es-ES voice for Spanish paragraphs and en-US for
+# English ones, so a bilingual document is read with the right voice per
+# paragraph automatically.
+md-tts notes.md --backend edge
+
+# Inspect the Edge voice catalogue:
+md-tts --backend edge --list-voices
 ```
 
 You can also run the module directly:
@@ -101,21 +113,21 @@ parser.parse_markdown(text)         → Iterator[Block]
 cli.run()                           ← argparse + interactive loop
    │
    ▼
-reader.TTSReader.say(text)          → pyttsx4 (SAPI5 / NSSpeech / eSpeak)
+reader.build_reader(backend)        → LocalReader (pyttsx4) or EdgeReader (edge-tts)
 ```
 
-Three modules, ~600 lines total. The parser builds on top of [markdown-it-py](https://github.com/executablebooks/markdown-it-py) and pre-processes `<details>` HTML blocks with a regex/placeholder trick before parsing, because `markdown-it` treats raw HTML as opaque tokens.
+Three modules plus per-backend implementations, ~700 lines total. The parser builds on top of [markdown-it-py](https://github.com/executablebooks/markdown-it-py) and pre-processes `<details>` HTML blocks with a regex/placeholder trick before parsing, because `markdown-it` treats raw HTML as opaque tokens.
 
-We depend on [`pyttsx4`](https://pypi.org/project/pyttsx4/) (a maintained fork of `pyttsx3`) because `pyttsx3 2.99` exhibits a SAPI5 bug on Windows where only the first `runAndWait()` call produces audio.
+The `local` backend uses [`pyttsx4`](https://pypi.org/project/pyttsx4/) (a maintained fork of `pyttsx3`) because `pyttsx3 2.99` exhibits a SAPI5 bug on Windows where only the first `runAndWait()` call produces audio. The `edge` backend uses [`edge-tts`](https://pypi.org/project/edge-tts/) to call Microsoft Edge's neural voices over HTTPS (no Microsoft account, no API key) and plays the resulting MP3 with [`playsound3`](https://pypi.org/project/playsound3/). Per-paragraph voice switching works on `edge` because each utterance is an independent HTTP request, with no shared engine state to corrupt.
 
 ## Roadmap
 
-- [ ] Interactive controls during playback: pause / resume, skip paragraph or section, change rate on the fly (requires a non-blocking engine loop on top of `pyttsx4.iterate()`).
+- [ ] Interactive controls during playback: pause / resume, skip paragraph or section, change rate on the fly (requires a non-blocking engine loop).
 - [ ] PyPI release (`pip install md-tts`)
-- [ ] Optional cloud TTS backend (ElevenLabs / Polly / Edge TTS) behind a flag
+- [x] Optional cloud-quality TTS backend (Microsoft Edge neural voices)
 - [ ] Rewind / skip-back during interactive mode
 - [ ] Persistent "bookmarks" to resume a long document
-- [ ] Per-paragraph voice switching (currently disabled; one voice per session due to SAPI5 stability)
+- [ ] MP3 export of an entire document for offline mobile listening
 
 ## Development
 
