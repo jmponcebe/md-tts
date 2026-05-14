@@ -162,3 +162,80 @@ def test_cli_passes_backend_to_factory(build_reader: MagicMock, tmp_path) -> Non
     assert cli.main([str(md), "--no-pause", "--backend", "edge"]) == 0
     args, kwargs = build_reader.call_args
     assert args[0] == "edge"
+
+
+# ---------------------------------------------------------------------------
+# Per-span multi-voice synthesis
+# ---------------------------------------------------------------------------
+
+
+def _make_stream_mock(payload: bytes):
+    """Build an async iterator that yields a single audio chunk with ``payload``."""
+
+    async def _stream():
+        yield {"type": "audio", "data": payload}
+
+    return _stream
+
+
+def test_say_with_spans_uses_one_call_when_all_same_voice(
+    fake_edge_tts: MagicMock, fake_playsound: MagicMock
+) -> None:
+    """A span list that resolves to a single voice falls back to single-shot."""
+    from md_tts._edge_reader import EdgeReader
+    from md_tts.parser import Span
+
+    reader = EdgeReader()
+    # Two ES spans + an implicit-lang span (None inherits block lang).
+    spans = [Span("Hola ", None), Span("mundo", "es")]
+    reader.say("Hola mundo", lang="es", spans=spans)
+    # Single-voice fast path: one Communicate, .save (not .stream).
+    assert fake_edge_tts.call_count == 1
+
+
+def test_say_with_mixed_spans_invokes_one_call_per_span(
+    fake_edge_tts: MagicMock, fake_playsound: MagicMock
+) -> None:
+    """Mixed-language spans trigger one Edge call per span (streamed)."""
+    from md_tts._edge_reader import DEFAULT_EN_VOICE, DEFAULT_ES_VOICE, EdgeReader
+    from md_tts.parser import Span
+
+    # Configure the mock so .stream() yields a small audio chunk per call.
+    instance = fake_edge_tts.return_value
+    instance.stream = _make_stream_mock(b"\xff\xfb\x00\x00")
+
+    reader = EdgeReader()
+    spans = [
+        Span("El framework ", None),
+        Span("framework", "en"),
+        Span(" es bueno.", None),
+    ]
+    reader.say("El framework es bueno.", lang="es", spans=spans)
+
+    # One Communicate per non-empty span.
+    voices = [call.kwargs["voice"] for call in fake_edge_tts.call_args_list]
+    assert voices == [DEFAULT_ES_VOICE, DEFAULT_EN_VOICE, DEFAULT_ES_VOICE]
+    fake_playsound.play.assert_called_once()
+
+
+def test_voice_overrides_apply(fake_edge_tts: MagicMock, fake_playsound: MagicMock) -> None:
+    """``voice_es`` / ``voice_en`` constructor args override the defaults."""
+    from md_tts._edge_reader import EdgeReader
+
+    reader = EdgeReader(voice_es="es-MX-DaliaNeural", voice_en="en-GB-RyanNeural")
+    assert reader._voice_for("es") == "es-MX-DaliaNeural"
+    assert reader._voice_for("en") == "en-GB-RyanNeural"
+
+
+def test_forced_voice_disables_multi_voice_path(
+    fake_edge_tts: MagicMock, fake_playsound: MagicMock
+) -> None:
+    """``--voice`` (forced) collapses everything to a single Edge call."""
+    from md_tts._edge_reader import EdgeReader
+    from md_tts.parser import Span
+
+    reader = EdgeReader(forced_voice="es-MX-DaliaNeural")
+    spans = [Span("foo ", None), Span("bar", "en")]
+    reader.say("foo bar", lang="es", spans=spans)
+    assert fake_edge_tts.call_count == 1
+    assert fake_edge_tts.call_args.kwargs["voice"] == "es-MX-DaliaNeural"

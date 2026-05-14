@@ -271,3 +271,114 @@ def test_export_atomic_rollback_on_failure(tmp_path: Path, monkeypatch: pytest.M
     # Previous content preserved; no .part file left behind.
     assert out.read_bytes() == b"PREVIOUS_GOOD_MP3"
     assert not out.with_name(out.name + ".part").exists()
+
+
+# ---------------------------------------------------------------------------
+# Per-span multi-voice export
+# ---------------------------------------------------------------------------
+
+
+def test_export_spans_split_into_per_voice_calls(tmp_path: Path, fake_edge: MagicMock) -> None:
+    """A text block with EN spans inside a Spanish paragraph fans out into
+    one Edge call per span and uses the right voice for each."""
+    from md_tts.exporter import export_to_mp3
+    from md_tts.parser import Span
+
+    out = tmp_path / "out.mp3"
+    spans = [
+        Span("El ", None),
+        Span("framework", "en"),
+        Span(" es estable.", None),
+    ]
+    blocks = [
+        Block(
+            kind="text",
+            content="El framework es estable.",
+            raw_preview="...",
+            spans=spans,
+        )
+    ]
+    export_to_mp3(blocks, out, lang_override="es", session_lang="es")
+
+    voices = [v for v, _ in fake_edge.seen]
+    # Three spans → three Communicate instances, with EN voice in the middle.
+    assert len(voices) == 3
+    assert voices[0].startswith("es-")
+    assert voices[1].startswith("en-")
+    assert voices[2].startswith("es-")
+
+
+def test_export_spans_single_voice_uses_one_call(tmp_path: Path, fake_edge: MagicMock) -> None:
+    """Span list that resolves to a single voice should NOT fan out."""
+    from md_tts.exporter import export_to_mp3
+    from md_tts.parser import Span
+
+    out = tmp_path / "out.mp3"
+    spans = [Span("Hola ", None), Span("mundo", "es")]
+    blocks = [
+        Block(
+            kind="text",
+            content="Hola mundo",
+            raw_preview="...",
+            spans=spans,
+        )
+    ]
+    export_to_mp3(blocks, out, lang_override="es", session_lang="es")
+
+    # Single Edge call: text is rendered once with the block's voice.
+    assert len(fake_edge.seen) == 1
+    assert fake_edge.seen[0][1] == "Hola mundo"
+
+
+def test_export_card_uses_extra_spans_for_answer(tmp_path: Path, fake_edge: MagicMock) -> None:
+    """Card answer spans (``extra_spans``) drive per-voice synthesis of the answer."""
+    from md_tts.exporter import export_to_mp3
+    from md_tts.parser import Span
+
+    out = tmp_path / "out.mp3"
+    q_spans = [Span("¿Qué es ", None), Span("pipeline", "en"), Span("?", None)]
+    a_spans = [Span("Un ", None), Span("pipeline", "en"), Span(" de datos.", None)]
+    blocks = [
+        Block(
+            kind="card",
+            content="¿Qué es pipeline?",
+            raw_preview="Q",
+            extra="Un pipeline de datos.",
+            spans=q_spans,
+            extra_spans=a_spans,
+        )
+    ]
+    export_to_mp3(blocks, out, lang_override="es", session_lang="es")
+
+    # Q: 3 spans + silence + A: 3 spans = 7 Communicate calls.
+    voices = [v for v, _ in fake_edge.seen]
+    # Q sandwich: es, en, es
+    assert voices[:3] == [voices[0], voices[1], voices[2]]
+    assert voices[0].startswith("es-")
+    assert voices[1].startswith("en-")
+    # Tail (after silence): es, en, es
+    assert voices[-1].startswith("es-")
+    assert any(v.startswith("en-") for v in voices[-3:])
+
+
+def test_export_voice_overrides_propagate_to_spans(tmp_path: Path, fake_edge: MagicMock) -> None:
+    """``voice_en`` / ``voice_es`` kwargs reach per-span synthesis."""
+    from md_tts.exporter import export_to_mp3
+    from md_tts.parser import Span
+
+    out = tmp_path / "out.mp3"
+    spans = [Span("foo ", None), Span("bar", "en")]
+    blocks = [
+        Block(kind="text", content="foo bar", raw_preview="...", spans=spans),
+    ]
+    export_to_mp3(
+        blocks,
+        out,
+        lang_override="es",
+        session_lang="es",
+        voice_es="es-MX-DaliaNeural",
+        voice_en="en-GB-RyanNeural",
+    )
+    voices = [v for v, _ in fake_edge.seen]
+    assert "es-MX-DaliaNeural" in voices
+    assert "en-GB-RyanNeural" in voices

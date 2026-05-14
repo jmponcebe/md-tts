@@ -94,9 +94,7 @@ def test_inline_code_emits_english_span_by_default() -> None:
     """Inline `code` chunks default to ``lang="en"`` for technical terms."""
     text = "Levanta el contenedor con `docker compose up` y listo."
     [block] = list(parse_markdown(text))
-    assert any(
-        s.text.strip() == "docker compose up" and s.lang == "en" for s in block.spans
-    )
+    assert any(s.text.strip() == "docker compose up" and s.lang == "en" for s in block.spans)
 
 
 def test_inline_code_lang_none_disables_per_span_override() -> None:
@@ -143,10 +141,7 @@ def test_heading_prefix_is_a_separate_lang_none_span() -> None:
 
 
 def test_card_spans_split_question_and_answer() -> None:
-    text = (
-        "<details><summary>¿Qué es FastAPI?</summary>"
-        "Un framework web en Python.</details>"
-    )
+    text = "<details><summary>¿Qué es FastAPI?</summary>Un framework web en Python.</details>"
     [block] = list(parse_markdown(text))
     assert block.kind == "card"
     assert block.spans == [Span(text="¿Qué es FastAPI?", lang=None)]

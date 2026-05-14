@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .parser import LangCode
+from .parser import LangCode, Span
 
 DEFAULT_ES_VOICE = "es-ES-ElviraNeural"
 DEFAULT_EN_VOICE = "en-US-AriaNeural"
@@ -82,6 +82,8 @@ class EdgeReader:
 
     rate: int = 185
     forced_voice: str | None = None
+    voice_es: str | None = None
+    voice_en: str | None = None
     _rate_str: str = field(init=False, repr=False)
     _tmp_path: Path | None = field(init=False, default=None, repr=False)
     _paused: bool = field(init=False, default=False, repr=False)
@@ -90,29 +92,65 @@ class EdgeReader:
     def __post_init__(self) -> None:
         self._rate_str = _rate_to_edge(self.rate)
 
-    def _voice_for(self, lang: LangCode) -> str:
+    def _voice_for(self, lang: LangCode | None) -> str:
         if self.forced_voice:
             return self.forced_voice
         if lang == "es":
-            return DEFAULT_ES_VOICE
+            return self.voice_es or DEFAULT_ES_VOICE
         if lang == "en":
-            return DEFAULT_EN_VOICE
-        return DEFAULT_VOICE
+            return self.voice_en or DEFAULT_EN_VOICE
+        return self.voice_en or DEFAULT_VOICE
 
-    def say(self, text: str, *, lang: LangCode = "unknown") -> None:
+    def say(
+        self,
+        text: str,
+        *,
+        lang: LangCode = "unknown",
+        spans: list[Span] | None = None,
+    ) -> None:
         """Blocking convenience: :meth:`play` then :meth:`wait`."""
-        self.play(text, lang=lang)
+        self.play(text, lang=lang, spans=spans)
         self.wait()
 
-    def play(self, text: str, *, lang: LangCode = "unknown") -> None:
-        """Synthesize ``text`` and start playback in the background."""
+    def play(
+        self,
+        text: str,
+        *,
+        lang: LangCode = "unknown",
+        spans: list[Span] | None = None,
+    ) -> None:
+        """Synthesize ``text`` and start playback in the background.
+
+        If ``spans`` is provided and contains more than one segment (or any
+        segment with an explicit language different from the block's
+        ``lang``), each span is synthesized with its own voice and the MP3
+        bytes are concatenated into a single temp file. Edge MP3 frames are
+        independently decodable, so plain byte concat plays as one stream
+        without re-encoding.
+        """
         if not text.strip():
             return
         self._cleanup_previous()
         self._stopped = False
-        voice = self._voice_for(lang)
-        self._tmp_path = asyncio.run(self._synthesize(text, voice))
+        if spans and self._needs_multi_voice(spans, lang):
+            self._tmp_path = asyncio.run(self._synthesize_spans(spans, lang))
+        else:
+            voice = self._voice_for(lang)
+            self._tmp_path = asyncio.run(self._synthesize(text, voice))
         self._start_playback(self._tmp_path)
+
+    def _needs_multi_voice(self, spans: list[Span], block_lang: LangCode) -> bool:
+        """True if the span list actually requires a voice switch.
+
+        Single-span lists, or lists where every span resolves to the same
+        voice as the block-level default, fall back to a single Edge call
+        (cheaper, lower latency, no concat).
+        """
+        if self.forced_voice:
+            return False
+        block_voice = self._voice_for(block_lang)
+        voices = {self._voice_for(s.lang if s.lang else block_lang) for s in spans}
+        return len(voices) > 1 or (len(voices) == 1 and next(iter(voices)) != block_voice)
 
     async def _synthesize(self, text: str, voice: str) -> Path:
         import edge_tts
@@ -121,6 +159,32 @@ class EdgeReader:
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as fh:
             tmp_path = Path(fh.name)
         await communicate.save(str(tmp_path))
+        return tmp_path
+
+    async def _synthesize_spans(self, spans: list[Span], block_lang: LangCode) -> Path:
+        """Synthesize each span with its own voice and concat MP3 bytes.
+
+        edge-tts escapes its input internally, so SSML can't be used to mix
+        voices in a single request. We issue one request per span and
+        concatenate the resulting MP3 payloads. Frames are self-contained,
+        so this plays as one continuous stream.
+        """
+        import edge_tts
+
+        chunks: list[bytes] = []
+        for span in spans:
+            if not span.text.strip():
+                continue
+            voice = self._voice_for(span.lang if span.lang else block_lang)
+            communicate = edge_tts.Communicate(span.text, voice=voice, rate=self._rate_str)
+            buf = bytearray()
+            async for chunk in communicate.stream():
+                if chunk.get("type") == "audio":
+                    buf.extend(chunk["data"])
+            chunks.append(bytes(buf))
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as fh:
+            fh.write(b"".join(chunks))
+            tmp_path = Path(fh.name)
         return tmp_path
 
     def _start_playback(self, path: Path) -> None:

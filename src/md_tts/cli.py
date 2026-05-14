@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 from ._kbd import poll_key, raw_terminal
-from .parser import Block, LangCode, detect_lang, parse_markdown
+from .parser import Block, LangCode, Span, detect_lang, parse_markdown
 from .reader import TTSReader, build_reader
 
 # Render signals returned by ``_render`` to the outer loop.
@@ -105,6 +105,26 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--inline-code-lang",
+        choices=["en", "none"],
+        default="en",
+        help=(
+            "Language used to pronounce inline ``code`` spans (default: en). "
+            "Use 'none' to disable per-span overrides and let the block's "
+            "detected language drive the voice (same behavior as v0.4.x)."
+        ),
+    )
+    parser.add_argument(
+        "--voice-en",
+        default=None,
+        help=("Edge backend only: voice used for English spans (default: en-US-AriaNeural)."),
+    )
+    parser.add_argument(
+        "--voice-es",
+        default=None,
+        help=("Edge backend only: voice used for Spanish spans (default: es-ES-ElviraNeural)."),
+    )
+    parser.add_argument(
         "--export",
         type=Path,
         default=None,
@@ -150,7 +170,14 @@ def _is_heading_block(block: Block) -> bool:
     return block.kind == "text" and block.raw_preview.startswith("#")
 
 
-def _interactive_play(reader: TTSReader, text: str, *, lang: LangCode, controls: bool) -> str:
+def _interactive_play(
+    reader: TTSReader,
+    text: str,
+    *,
+    lang: LangCode,
+    controls: bool,
+    spans: list[Span] | None = None,
+) -> str:
     """Speak ``text`` and return a render signal.
 
     When ``controls`` is False this is equivalent to ``reader.say(text)``:
@@ -160,10 +187,10 @@ def _interactive_play(reader: TTSReader, text: str, *, lang: LangCode, controls:
     if not text.strip():
         return RENDER_NEXT
     if not controls:
-        reader.say(text, lang=lang)
+        reader.say(text, lang=lang, spans=spans)
         return RENDER_NEXT
 
-    reader.play(text, lang=lang)
+    reader.play(text, lang=lang, spans=spans)
     paused = False
     while reader.is_playing():
         key = poll_key(timeout=0.05)
@@ -215,22 +242,41 @@ def _render(
             block.content,
             lang=_resolve_lang(block.content, lang_override, session_lang),
             controls=controls,
+            spans=block.spans or None,
         )
 
     if block.kind == "card":
         q_lang = _resolve_lang(block.content, lang_override, session_lang)
         a_lang = _resolve_lang(block.extra, lang_override, session_lang)
-        sig = _interactive_play(reader, block.content, lang=q_lang, controls=controls)
+        sig = _interactive_play(
+            reader,
+            block.content,
+            lang=q_lang,
+            controls=controls,
+            spans=block.spans or None,
+        )
         if sig != RENDER_NEXT:
             return sig
         if no_pause:
-            return _interactive_play(reader, block.extra, lang=a_lang, controls=controls)
+            return _interactive_play(
+                reader,
+                block.extra,
+                lang=a_lang,
+                controls=controls,
+                spans=block.extra_spans or None,
+            )
         print(f"\n{block.raw_preview}")
         try:
             input("    [ENTER to reveal the answer] ")
         except EOFError:
             return RENDER_NEXT
-        return _interactive_play(reader, block.extra, lang=a_lang, controls=controls)
+        return _interactive_play(
+            reader,
+            block.extra,
+            lang=a_lang,
+            controls=controls,
+            spans=block.extra_spans or None,
+        )
 
     # code / table — pick the announcement language from the explicit override
     # when set, otherwise fall back to the session language so a Spanish-leaning
@@ -283,7 +329,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     text = args.path.read_text(encoding="utf-8")
-    blocks = list(parse_markdown(text))
+    inline_lang: LangCode | None = "en" if args.inline_code_lang == "en" else None
+    blocks = list(parse_markdown(text, inline_code_lang=inline_lang))
     if not blocks:
         print("warning: no readable content in file", file=sys.stderr)
         return 0
@@ -326,6 +373,8 @@ def main(argv: list[str] | None = None) -> int:
                 session_lang=session_lang,
                 rate=args.rate,
                 forced_voice=args.voice,
+                voice_es=args.voice_es,
+                voice_en=args.voice_en,
             )
         except ImportError as exc:
             print(f"error: {exc}", file=sys.stderr)
@@ -341,6 +390,8 @@ def main(argv: list[str] | None = None) -> int:
         rate=args.rate,
         forced_voice=args.voice,
         lang=session_lang,
+        voice_es=args.voice_es,
+        voice_en=args.voice_en,
     )
 
     # Stop the speech engine on Ctrl+C so the current utterance is cut short

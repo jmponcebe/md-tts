@@ -346,9 +346,7 @@ def _strip_emoji_spans(spans: list[Span]) -> list[Span]:
     return _coalesce_spans([Span(text=s.text, lang=s.lang) for s in spans if s.text])
 
 
-def parse_markdown(
-    md_text: str, *, inline_code_lang: LangCode | None = "en"
-) -> Iterator[Block]:
+def parse_markdown(md_text: str, *, inline_code_lang: LangCode | None = "en") -> Iterator[Block]:
     """Parse a Markdown document and yield :class:`Block` instances.
 
     The block kinds are designed to drive an interactive TTS reader:
@@ -379,9 +377,7 @@ def parse_markdown(
         if tok.type == "heading_open":
             level = int(tok.tag[1])
             inline = tokens[i + 1]
-            raw_text, body_spans = _flatten_inline_pieces(
-                inline, inline_code_lang=inline_code_lang
-            )
+            raw_text, body_spans = _flatten_inline_pieces(inline, inline_code_lang=inline_code_lang)
             text = _strip_emojis(raw_text)
             lang = detect_lang(text)
             if lang == "en":
@@ -407,9 +403,7 @@ def parse_markdown(
 
         if tok.type == "paragraph_open":
             inline = tokens[i + 1]
-            raw_text, body_spans = _flatten_inline_pieces(
-                inline, inline_code_lang=inline_code_lang
-            )
+            raw_text, body_spans = _flatten_inline_pieces(inline, inline_code_lang=inline_code_lang)
             text = _strip_emojis(raw_text)
             if text:
                 if text.strip() in placeholders:
@@ -469,9 +463,7 @@ def parse_markdown(
                     depth -= 1
                     item_depth = max(depth, 1)
                 elif t.type == "inline" and depth >= 1:
-                    raw, item_spans = _flatten_inline_pieces(
-                        t, inline_code_lang=inline_code_lang
-                    )
+                    raw, item_spans = _flatten_inline_pieces(t, inline_code_lang=inline_code_lang)
                     items.append((item_depth, raw, _strip_emojis(raw), item_spans))
                 j += 1
             if items:

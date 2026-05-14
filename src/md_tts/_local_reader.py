@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 
 import pyttsx4
 
-from .parser import LangCode
+from .parser import LangCode, Span
 
 if TYPE_CHECKING:
     from pyttsx4.engine import Engine
@@ -96,20 +96,32 @@ class LocalReader:
         voices = self._engine.getProperty("voices") or []
         return [(getattr(v, "id", ""), getattr(v, "name", "")) for v in voices]
 
-    def say(self, text: str, *, lang: LangCode = "unknown") -> None:
+    def say(
+        self,
+        text: str,
+        *,
+        lang: LangCode = "unknown",
+        spans: list[Span] | None = None,
+    ) -> None:
         """Blocking convenience: :meth:`play` then :meth:`wait`."""
-        self.play(text, lang=lang)
+        self.play(text, lang=lang, spans=spans)
         self.wait()
 
-    def play(self, text: str, *, lang: LangCode = "unknown") -> None:
+    def play(
+        self,
+        text: str,
+        *,
+        lang: LangCode = "unknown",
+        spans: list[Span] | None = None,
+    ) -> None:
         """Start an utterance in a background thread.
 
-        ``lang`` is accepted for API compatibility but ignored: the active
-        voice is fixed at construction time because per-utterance voice
-        switching is unreliable on Windows SAPI5. We re-apply the voice on
-        every utterance as a defensive measure.
+        ``lang`` and ``spans`` are accepted for API compatibility but
+        ignored: the active voice is fixed at construction time because
+        per-utterance voice switching is unreliable on Windows SAPI5.
+        We re-apply the voice on every utterance as a defensive measure.
         """
-        del lang  # voice is fixed at construction time
+        del lang, spans  # voice is fixed at construction time
         if not text.strip():
             return
         # Wait for any in-flight utterance to finish so we don't pile up.
