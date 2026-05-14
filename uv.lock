@@ -418,7 +418,7 @@ wheels = [
 
 [[package]]
 name = "md-tts"
-version = "0.4.1"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "markdown-it-py" },
@@ -437,11 +437,15 @@ edge = [
     { name = "edge-tts" },
     { name = "pygame" },
 ]
+export = [
+    { name = "edge-tts" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "edge-tts", marker = "extra == 'dev'", specifier = ">=7.2.8" },
     { name = "edge-tts", marker = "extra == 'edge'", specifier = ">=7.2.8" },
+    { name = "edge-tts", marker = "extra == 'export'", specifier = ">=7.2.8" },
     { name = "markdown-it-py", specifier = ">=3.0.0" },
     { name = "pygame", marker = "extra == 'dev'", specifier = ">=2.5" },
     { name = "pygame", marker = "extra == 'edge'", specifier = ">=2.5" },
@@ -450,7 +454,7 @@ requires-dist = [
     { name = "pyttsx4", specifier = ">=3.0.15" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
 ]
-provides-extras = ["edge", "dev"]
+provides-extras = ["edge", "export", "dev"]
 
 [[package]]
 name = "mdurl"

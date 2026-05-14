@@ -30,7 +30,7 @@ from ._edge_reader import (
     DEFAULT_VOICE,
     _rate_to_edge,
 )
-from .parser import Block, LangCode
+from .parser import Block, LangCode, Span
 
 # 3 s of silence approximated by edge-tts itself (see ``_synthesize_silence``).
 # This constant is the fallback when synthesis fails: a single empty MP3 frame
@@ -38,14 +38,20 @@ from .parser import Block, LangCode
 _EMPTY_MP3_FRAME = b"\xff\xfb\x10\xc4" + b"\x00" * 415
 
 
-def _voice_for(lang: LangCode, forced: str | None) -> str:
+def _voice_for(
+    lang: LangCode | None,
+    forced: str | None,
+    *,
+    voice_es: str | None = None,
+    voice_en: str | None = None,
+) -> str:
     if forced:
         return forced
     if lang == "es":
-        return DEFAULT_ES_VOICE
+        return voice_es or DEFAULT_ES_VOICE
     if lang == "en":
-        return DEFAULT_EN_VOICE
-    return DEFAULT_VOICE
+        return voice_en or DEFAULT_EN_VOICE
+    return voice_en or DEFAULT_VOICE
 
 
 def _skip_announcement(kind: str, info: str, lang: LangCode) -> str:
@@ -117,6 +123,8 @@ async def _export_async(
     session_lang: LangCode,
     rate: int,
     forced_voice: str | None,
+    voice_es: str | None = None,
+    voice_en: str | None = None,
 ) -> int:
     """Write all blocks as concatenated MP3 to ``output``. Returns segment count.
 
@@ -137,6 +145,36 @@ async def _export_async(
             silence_cache[key] = await _synthesize_silence(voice, rate_str)
         return silence_cache[key]
 
+    def _voice(lang: LangCode | None) -> str:
+        return _voice_for(lang, forced_voice, voice_es=voice_es, voice_en=voice_en)
+
+    async def _synth_block(text: str, spans: list[Span], block_lang: LangCode) -> bytes:
+        """Synthesize a text block, honoring spans when they require multi-voice.
+
+        Falls back to single-voice synthesis when spans is empty or every
+        span resolves to the same voice (cheaper, fewer HTTPS round-trips).
+        """
+        if not text.strip():
+            return b""
+        block_voice = _voice(block_lang)
+        if not spans or forced_voice:
+            return await _synthesize(text, block_voice, rate_str)
+        voices = {_voice(s.lang if s.lang else block_lang) for s in spans}
+        if len(voices) <= 1 and next(iter(voices), block_voice) == block_voice:
+            return await _synthesize(text, block_voice, rate_str)
+        chunks: list[bytes] = []
+        for s in spans:
+            if not s.text.strip():
+                continue
+            chunks.append(
+                await _synthesize(
+                    s.text,
+                    _voice(s.lang if s.lang else block_lang),
+                    rate_str,
+                )
+            )
+        return b"".join(chunks)
+
     tmp_path = output.with_name(output.name + ".part")
     try:
         with tmp_path.open("wb") as out:
@@ -145,9 +183,10 @@ async def _export_async(
                     if not block.content.strip():
                         continue
                     lang = _resolve_lang_for_block(block, lang_override, session_lang)
-                    voice = _voice_for(lang, forced_voice)
-                    out.write(await _synthesize(block.content, voice, rate_str))
-                    segments += 1
+                    audio = await _synth_block(block.content, block.spans, lang)
+                    if audio:
+                        out.write(audio)
+                        segments += 1
                     continue
 
                 if block.kind == "card":
@@ -156,15 +195,17 @@ async def _export_async(
                     a_block = Block(kind="text", content=block.extra, raw_preview=block.extra)
                     a_lang = _resolve_lang_for_block(a_block, lang_override, session_lang)
 
-                    q_voice = _voice_for(q_lang, forced_voice)
-                    a_voice = _voice_for(a_lang, forced_voice)
                     if block.content.strip():
-                        out.write(await _synthesize(block.content, q_voice, rate_str))
-                        segments += 1
-                    out.write(await _get_silence(q_voice))
+                        audio = await _synth_block(block.content, block.spans, q_lang)
+                        if audio:
+                            out.write(audio)
+                            segments += 1
+                    out.write(await _get_silence(_voice(q_lang)))
                     if block.extra.strip():
-                        out.write(await _synthesize(block.extra, a_voice, rate_str))
-                        segments += 1
+                        audio = await _synth_block(block.extra, block.extra_spans, a_lang)
+                        if audio:
+                            out.write(audio)
+                            segments += 1
                     continue
 
                 # code / table — announce the skip in the session language.
@@ -175,8 +216,7 @@ async def _export_async(
                 else:
                     announce_lang = "es" if session_lang == "es" else "en"
                 text = _skip_announcement(block.kind, block.info, announce_lang)
-                voice = _voice_for(announce_lang, forced_voice)
-                out.write(await _synthesize(text, voice, rate_str))
+                out.write(await _synthesize(text, _voice(announce_lang), rate_str))
                 segments += 1
     except BaseException:
         # Best-effort cleanup; leaving a stray .part is preferable to clobbering
@@ -200,6 +240,8 @@ def export_to_mp3(
     session_lang: LangCode = "unknown",
     rate: int = 185,
     forced_voice: str | None = None,
+    voice_es: str | None = None,
+    voice_en: str | None = None,
 ) -> int:
     """Synchronous entry point. Returns the number of segments written."""
     return asyncio.run(
@@ -210,5 +252,7 @@ def export_to_mp3(
             session_lang=session_lang,
             rate=rate,
             forced_voice=forced_voice,
+            voice_es=voice_es,
+            voice_en=voice_en,
         )
     )

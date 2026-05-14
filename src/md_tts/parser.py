@@ -35,6 +35,25 @@ LangCode = Literal["es", "en", "unknown"]
 
 
 @dataclass
+class Span:
+    """A sub-segment of a :class:`Block` with an optional explicit language.
+
+    Spans let the Edge backend swap voices mid-paragraph: e.g. when a
+    Spanish sentence quotes an English technical term in backticks, the
+    parser emits a ``Span(text="FastAPI", lang="en")`` sandwiched between
+    Spanish-tagged spans. A ``lang`` of ``None`` means "inherit the block's
+    detected language"; the consumer is responsible for resolving it.
+
+    Attributes:
+        text: The literal text to speak (already emoji-cleaned).
+        lang: ``"es"`` / ``"en"`` to force a voice, or ``None`` to inherit.
+    """
+
+    text: str
+    lang: LangCode | None = None
+
+
+@dataclass
 class Block:
     """A single unit of content yielded by :func:`parse_markdown`.
 
@@ -47,6 +66,12 @@ class Block:
         info: Auxiliary metadata (e.g. language tag of a code block, ``"N rows"``
             for tables).
         extra: Used by ``card`` to hold the answer text.
+        spans: Ordered sub-segments of ``content`` annotated with per-span
+            language. Empty for ``code`` / ``table`` blocks. Consumers that
+            do not support per-span language switching can ignore this and
+            fall back to ``content``.
+        extra_spans: Same as :attr:`spans` but for ``card``'s ``extra``
+            (the answer text).
     """
 
     kind: BlockKind
@@ -54,6 +79,8 @@ class Block:
     raw_preview: str
     info: str = ""
     extra: str = ""
+    spans: list[Span] = field(default_factory=list)
+    extra_spans: list[Span] = field(default_factory=list)
 
 
 # --- Language detection -----------------------------------------------------
@@ -169,21 +196,59 @@ def _strip_emojis(text: str) -> str:
     return re.sub(r"\s+", " ", _EMOJI_RE.sub("", text)).strip()
 
 
-def _flatten_inline(token: Token) -> str:
-    """Flatten a ``markdown-it`` ``inline`` token into a plain TTS-readable string."""
-    parts: list[str] = []
+def _coalesce_spans(spans: list[Span]) -> list[Span]:
+    """Merge adjacent spans that share the same language tag.
+
+    Adjacent ``Span(text="a", lang=None)`` + ``Span(text="b", lang=None)``
+    becomes ``Span(text="ab", lang=None)``. Empty spans are dropped. This
+    keeps the span list compact so the Edge backend issues one HTTP request
+    per actual language boundary, not per markdown-it token.
+    """
+    out: list[Span] = []
+    for s in spans:
+        if not s.text:
+            continue
+        if out and out[-1].lang == s.lang:
+            out[-1] = Span(text=out[-1].text + s.text, lang=s.lang)
+        else:
+            out.append(s)
+    return out
+
+
+def _flatten_inline_pieces(
+    token: Token, *, inline_code_lang: LangCode | None = "en"
+) -> tuple[str, list[Span]]:
+    """Flatten an ``inline`` token to both a flat string and a span list.
+
+    The flat string mirrors the legacy :func:`_flatten_inline` output (with
+    inline code wrapped in single quotes for audible separation on the local
+    backend). The span list carries the same content split by language
+    boundaries: ``code_inline`` children are tagged with ``inline_code_lang``
+    (default ``"en"``); everything else is tagged ``None`` so the consumer
+    inherits the block's detected language. Pass ``inline_code_lang=None``
+    to preserve the pre-0.5 single-voice behavior.
+    """
+    text_parts: list[str] = []
+    spans: list[Span] = []
+
+    def emit(flat_text: str, span_text: str, lang: LangCode | None) -> None:
+        text_parts.append(flat_text)
+        clean = _EMOJI_RE.sub("", span_text)
+        if clean:
+            spans.append(Span(text=clean, lang=lang))
+
     for child in token.children or []:
         if child.type == "text":
-            parts.append(child.content)
+            emit(child.content, child.content, None)
         elif child.type == "code_inline":
-            # Quote the inline code so it reads as a snippet, without the
-            # noisy "código X" repetition when the content itself contains
-            # the word "código".
-            parts.append(f"'{child.content}'")
+            # Flat string keeps the quotes so the local backend (single voice)
+            # still hears a snippet boundary; the span list drops them since
+            # the voice switch itself signals "this is code".
+            emit(f"'{child.content}'", child.content, inline_code_lang)
         elif child.type == "softbreak":
-            parts.append(" ")
+            emit(" ", " ", None)
         elif child.type == "hardbreak":
-            parts.append(". ")
+            emit(". ", ". ", None)
         elif child.type in {
             "link_open",
             "link_close",
@@ -208,15 +273,23 @@ def _flatten_inline(token: Token) -> str:
             # populates this with the rendered alt for image tokens).
             if not alt:
                 alt = (child.content or "").strip()
-            parts.append(f"[imagen: {alt or 'sin descripción'}]")
+            placeholder = f"[imagen: {alt or 'sin descripción'}]"
+            emit(placeholder, placeholder, None)
         elif child.type == "html_inline":
             cleaned = re.sub(r"<[^>]+>", "", child.content)
             if cleaned.strip():
-                parts.append(cleaned)
+                emit(cleaned, cleaned, None)
         else:
             if child.content:
-                parts.append(child.content)
-    return re.sub(r"\s+", " ", "".join(parts)).strip()
+                emit(child.content, child.content, None)
+
+    flat = re.sub(r"\s+", " ", "".join(text_parts)).strip()
+    return flat, _coalesce_spans(spans)
+
+
+def _flatten_inline(token: Token) -> str:
+    """Backward-compatible wrapper that returns only the flat string."""
+    return _flatten_inline_pieces(token)[0]
 
 
 # --- Public parser ----------------------------------------------------------
@@ -262,7 +335,18 @@ def _extract_flashcards(md_text: str) -> tuple[str, dict[str, tuple[str, str]]]:
     return _DETAILS_RE.sub(_sub, md_text), placeholders
 
 
-def parse_markdown(md_text: str) -> Iterator[Block]:
+def _strip_emoji_spans(spans: list[Span]) -> list[Span]:
+    """Drop spans that become empty after emoji stripping. Idempotent.
+
+    ``_flatten_inline_pieces`` already strips emojis at emit time, so this
+    is mostly a no-op for inline content. It exists for paths that build
+    spans from already-flattened text (e.g. list items, where the legacy
+    ``_strip_emojis`` is applied to a joined string).
+    """
+    return _coalesce_spans([Span(text=s.text, lang=s.lang) for s in spans if s.text])
+
+
+def parse_markdown(md_text: str, *, inline_code_lang: LangCode | None = "en") -> Iterator[Block]:
     """Parse a Markdown document and yield :class:`Block` instances.
 
     The block kinds are designed to drive an interactive TTS reader:
@@ -270,6 +354,14 @@ def parse_markdown(md_text: str) -> Iterator[Block]:
     - ``text``: prose to read aloud (headings, paragraphs, list items, quotes).
     - ``code`` / ``table`` / ``image`` / ``math``: interactive pause points.
     - ``card``: a flashcard extracted from ``<details><summary>Q</summary>A``.
+
+    Args:
+        md_text: The raw Markdown source.
+        inline_code_lang: Language tag to assign to inline ``code_inline`` spans
+            (e.g. content between single backticks). Defaults to ``"en"`` since
+            inline code in technical notes is almost always English. Pass
+            ``None`` to preserve the pre-0.5 behavior (one voice for the whole
+            paragraph).
     """
     pre_processed, placeholders = _extract_flashcards(md_text)
 
@@ -285,38 +377,59 @@ def parse_markdown(md_text: str) -> Iterator[Block]:
         if tok.type == "heading_open":
             level = int(tok.tag[1])
             inline = tokens[i + 1]
-            raw_text = _flatten_inline(inline)
+            raw_text, body_spans = _flatten_inline_pieces(inline, inline_code_lang=inline_code_lang)
             text = _strip_emojis(raw_text)
             lang = detect_lang(text)
             if lang == "en":
                 prefix = {1: "Chapter: ", 2: "Section: ", 3: "Subsection: "}.get(level, "")
             else:
                 prefix = {1: "Capítulo: ", 2: "Sección: ", 3: "Subsección: "}.get(level, "")
-            spoken = text if text.endswith((".", "!", "?", ":")) else f"{text}."
+            needs_period = text and not text.endswith((".", "!", "?", ":"))
+            spoken = f"{text}." if needs_period else text
+            spans: list[Span] = []
+            if prefix:
+                spans.append(Span(text=prefix, lang=None))
+            spans.extend(body_spans)
+            if needs_period:
+                spans.append(Span(text=".", lang=None))
             yield Block(
                 kind="text",
                 content=f"{prefix}{spoken}",
                 raw_preview=f"{'#' * level} {raw_text}",
+                spans=_coalesce_spans(spans),
             )
             i += 3
             continue
 
         if tok.type == "paragraph_open":
             inline = tokens[i + 1]
-            raw_text = _flatten_inline(inline)
+            raw_text, body_spans = _flatten_inline_pieces(inline, inline_code_lang=inline_code_lang)
             text = _strip_emojis(raw_text)
             if text:
                 if text.strip() in placeholders:
                     q, a = placeholders[text.strip()]
+                    q_clean = _strip_emojis(q)
+                    a_clean = _strip_emojis(a)
                     yield Block(
                         kind="card",
-                        content=_strip_emojis(q),
+                        content=q_clean,
                         raw_preview=f"❓ {q}",
-                        extra=_strip_emojis(a),
+                        extra=a_clean,
+                        spans=[Span(text=q_clean, lang=None)] if q_clean else [],
+                        extra_spans=[Span(text=a_clean, lang=None)] if a_clean else [],
                     )
                 else:
                     prefix = "Cita: " if state.in_blockquote else ""
-                    yield Block(kind="text", content=f"{prefix}{text}", raw_preview=raw_text)
+                    spans = []
+                    if prefix:
+                        spans.append(Span(text=prefix, lang=None))
+                    spans.extend(body_spans)
+                    yield Block(
+                        kind="text",
+                        content=f"{prefix}{text}",
+                        raw_preview=raw_text,
+                        spans=_coalesce_spans(spans),
+                    )
             i += 3
             continue
 
@@ -336,9 +449,10 @@ def parse_markdown(md_text: str) -> Iterator[Block]:
             j = i + 1
             # Track each item with its nesting depth so sub-items get a
             # sub-point prefix ("Subpunto") instead of being flattened.
-            # We keep both the raw text (for the on-screen preview) and the
-            # emoji-stripped version (for what the engine actually speaks).
-            items: list[tuple[int, str, str]] = []
+            # We keep the raw text (for preview), the emoji-stripped text
+            # (for the legacy ``content`` field) and the span list (for the
+            # Edge backend's per-span voice switching).
+            items: list[tuple[int, str, str, list[Span]]] = []
             item_depth = 1
             while j < len(tokens) and depth > 0:
                 t = tokens[j]
@@ -349,28 +463,36 @@ def parse_markdown(md_text: str) -> Iterator[Block]:
                     depth -= 1
                     item_depth = max(depth, 1)
                 elif t.type == "inline" and depth >= 1:
-                    raw = _flatten_inline(t)
-                    items.append((item_depth, raw, _strip_emojis(raw)))
+                    raw, item_spans = _flatten_inline_pieces(t, inline_code_lang=inline_code_lang)
+                    items.append((item_depth, raw, _strip_emojis(raw), item_spans))
                 j += 1
             if items:
                 top_n = 0
                 sub_n = 0
                 spoken_parts: list[str] = []
                 preview_parts: list[str] = []
-                for level, raw_txt, spoken_txt in items:
+                combined_spans: list[Span] = []
+                for idx, (level, raw_txt, spoken_txt, item_spans) in enumerate(items):
                     if level <= 1:
                         top_n += 1
                         sub_n = 0
-                        spoken_parts.append(f"Punto {top_n}: {spoken_txt}")
+                        item_prefix = f"Punto {top_n}: "
+                        spoken_parts.append(f"{item_prefix}{spoken_txt}")
                         preview_parts.append(f"- {raw_txt}")
                     else:
                         sub_n += 1
-                        spoken_parts.append(f"Subpunto {sub_n}: {spoken_txt}")
+                        item_prefix = f"Subpunto {sub_n}: "
+                        spoken_parts.append(f"{item_prefix}{spoken_txt}")
                         preview_parts.append(f"{'  ' * (level - 1)}- {raw_txt}")
+                    if idx > 0:
+                        combined_spans.append(Span(text=". ", lang=None))
+                    combined_spans.append(Span(text=item_prefix, lang=None))
+                    combined_spans.extend(item_spans)
                 yield Block(
                     kind="text",
                     content=". ".join(spoken_parts),
                     raw_preview="\n".join(preview_parts),
+                    spans=_coalesce_spans(combined_spans),
                 )
             i = j
             continue
@@ -385,7 +507,12 @@ def parse_markdown(md_text: str) -> Iterator[Block]:
             continue
 
         if tok.type == "hr":
-            yield Block(kind="text", content="Separador.", raw_preview="---")
+            yield Block(
+                kind="text",
+                content="Separador.",
+                raw_preview="---",
+                spans=[Span(text="Separador.", lang=None)],
+            )
             i += 1
             continue
 
@@ -421,7 +548,12 @@ def parse_markdown(md_text: str) -> Iterator[Block]:
             cleaned = re.sub(r"\s+", " ", cleaned).strip()
             spoken = _strip_emojis(cleaned)
             if spoken:
-                yield Block(kind="text", content=spoken, raw_preview=tok.content.strip())
+                yield Block(
+                    kind="text",
+                    content=spoken,
+                    raw_preview=tok.content.strip(),
+                    spans=[Span(text=spoken, lang=None)],
+                )
             i += 1
             continue
 

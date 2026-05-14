@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from md_tts.parser import Block, parse_markdown
+from md_tts.parser import Block, Span, parse_markdown
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -85,3 +85,76 @@ def test_inline_code_is_marked_audibly() -> None:
 
 def test_empty_input_yields_no_blocks() -> None:
     assert list(parse_markdown("")) == []
+
+
+# --- Phase 1: inline language spans ---------------------------------------
+
+
+def test_inline_code_emits_english_span_by_default() -> None:
+    """Inline `code` chunks default to ``lang="en"`` for technical terms."""
+    text = "Levanta el contenedor con `docker compose up` y listo."
+    [block] = list(parse_markdown(text))
+    assert any(s.text.strip() == "docker compose up" and s.lang == "en" for s in block.spans)
+
+
+def test_inline_code_lang_none_disables_per_span_override() -> None:
+    """Passing ``inline_code_lang=None`` preserves pre-0.5 single-voice behavior."""
+    text = "Usa `git status` ahora."
+    [block] = list(parse_markdown(text, inline_code_lang=None))
+    assert block.spans, "spans should still be populated, just without explicit lang"
+    assert all(s.lang is None for s in block.spans)
+
+
+def test_spans_join_into_block_content() -> None:
+    """The flat ``content`` field must equal the concatenation of span texts.
+
+    Modulo the inline-code quoting: spans carry ``docker`` while content has
+    ``'docker'`` (with single quotes for the local backend). We compare the
+    quote-stripped reconstruction instead.
+    """
+    text = "Despliega con `FastAPI` en producción."
+    [block] = list(parse_markdown(text))
+    joined = "".join(s.text for s in block.spans)
+    # ``content`` keeps the quotes for legacy backends; spans drop them.
+    assert "FastAPI" in joined
+    assert "Despliega con " in joined
+    assert " en producción" in joined
+
+
+def test_adjacent_text_spans_are_coalesced() -> None:
+    text = "Hola mundo."
+    [block] = list(parse_markdown(text))
+    # No inline code → exactly one span (prefix not applied to plain paragraphs).
+    assert len(block.spans) == 1
+    assert block.spans[0].lang is None
+    assert block.spans[0].text == "Hola mundo."
+
+
+def test_heading_prefix_is_a_separate_lang_none_span() -> None:
+    text = "# Mi capítulo con `Python`\n"
+    [block] = list(parse_markdown(text))
+    # First span must be the prefix, last span must be the closing period,
+    # and at least one span in between has lang="en" for the inline code.
+    assert block.spans[0].lang is None
+    assert block.spans[0].text.startswith(("Capítulo: ", "Chapter: "))
+    assert any(s.lang == "en" and s.text == "Python" for s in block.spans)
+
+
+def test_card_spans_split_question_and_answer() -> None:
+    text = "<details><summary>¿Qué es FastAPI?</summary>Un framework web en Python.</details>"
+    [block] = list(parse_markdown(text))
+    assert block.kind == "card"
+    assert block.spans == [Span(text="¿Qué es FastAPI?", lang=None)]
+    assert block.extra_spans == [Span(text="Un framework web en Python.", lang=None)]
+
+
+def test_list_items_get_prefix_spans() -> None:
+    text = "- Primero `git`\n- Segundo `docker`\n"
+    [block] = list(parse_markdown(text))
+    assert block.kind == "text"
+    prefixes = [s.text for s in block.spans if s.lang is None and "Punto" in s.text]
+    assert any("Punto 1: " in p for p in prefixes)
+    assert any("Punto 2: " in p for p in prefixes)
+    # English code spans preserved
+    en_spans = [s.text for s in block.spans if s.lang == "en"]
+    assert "git" in en_spans and "docker" in en_spans

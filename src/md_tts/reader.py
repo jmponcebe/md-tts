@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Literal, Protocol, runtime_checkable
 
-from .parser import LangCode
+from .parser import LangCode, Span
 
 BackendName = Literal["local", "edge"]
 
@@ -34,8 +34,20 @@ class TTSReader(Protocol):
 
     rate: int
 
-    def play(self, text: str, *, lang: LangCode = "unknown") -> None:
-        """Start playback of ``text``, returning immediately."""
+    def play(
+        self,
+        text: str,
+        *,
+        lang: LangCode = "unknown",
+        spans: list[Span] | None = None,
+    ) -> None:
+        """Start playback of ``text``, returning immediately.
+
+        ``spans`` is an optional list of sub-segments with per-segment
+        language overrides. Backends that support per-utterance voice
+        switching (edge) will honor it; backends that don't (local) ignore
+        it and speak ``text`` with their single fixed voice.
+        """
         ...
 
     def wait(self, timeout: float | None = None) -> bool:
@@ -69,7 +81,13 @@ class TTSReader(Protocol):
         """Update rate; applies to subsequent utterances."""
         ...
 
-    def say(self, text: str, *, lang: LangCode = "unknown") -> None:
+    def say(
+        self,
+        text: str,
+        *,
+        lang: LangCode = "unknown",
+        spans: list[Span] | None = None,
+    ) -> None:
         """Blocking convenience: :meth:`play` followed by :meth:`wait`."""
         ...
 
@@ -82,6 +100,8 @@ def build_reader(
     rate: int = 185,
     forced_voice: str | None = None,
     lang: LangCode = "unknown",
+    voice_es: str | None = None,
+    voice_en: str | None = None,
 ) -> TTSReader:
     """Construct the requested TTS backend.
 
@@ -95,6 +115,10 @@ def build_reader(
         lang: Initial language used by the local backend to pick a voice
             automatically. The edge backend instead picks a voice per
             utterance based on the ``lang`` passed to :meth:`say`.
+        voice_es: Edge-only override for the Spanish voice (defaults to
+            ``es-ES-ElviraNeural``). Ignored by the local backend.
+        voice_en: Edge-only override for the English voice (defaults to
+            ``en-US-AriaNeural``). Ignored by the local backend.
     """
     if backend == "local":
         from ._local_reader import LocalReader
@@ -111,5 +135,10 @@ def build_reader(
                 "Install them with: pip install 'md-tts[edge]'"
             ) from exc
 
-        return EdgeReader(rate=rate, forced_voice=forced_voice)
+        return EdgeReader(
+            rate=rate,
+            forced_voice=forced_voice,
+            voice_es=voice_es,
+            voice_en=voice_en,
+        )
     raise ValueError(f"Unknown TTS backend: {backend!r}")

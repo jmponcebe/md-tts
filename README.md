@@ -27,7 +27,8 @@ It is intentionally minimal. It targets developers who want to revise their own 
 
 - 🛑 **Interactive pauses** on code blocks and tables.
 - 🎴 **Flashcard mode** for `<details><summary>Q</summary>A</details>` (speak Q, wait, speak A).
-- 🌍 **ES/EN dominant-language detection**: the parser picks a single session voice based on the document’s dominant language. Per-paragraph voice switching was tried and proved unstable on SAPI5; it lives in the roadmap.
+- 🌍 **ES/EN dominant-language detection**: the parser picks a single session voice based on the document's dominant language. Per-paragraph voice switching was tried and proved unstable on SAPI5; it lives in the roadmap.
+- 🔀 **Inline language switching** (Edge backend): backticked code segments inside a Spanish paragraph are pronounced with the English voice, so technical terms like `framework` or `pipeline` sound natural instead of being read as Spanish phonetics.
 - 🎧 **Podcast mode** (`--no-pause`) that announces skipped blocks in the chosen language instead of waiting.
 - 🔊 **Cross-platform TTS** via `pyttsx4` (SAPI5 on Windows, NSSpeechSynthesizer on macOS, eSpeak on Linux). No cloud account, no API key.
 - 🌐 **Optional Edge neural voices** (`--backend edge`): natural-sounding Microsoft voices, picks a voice per paragraph based on the detected language. Requires internet.
@@ -107,6 +108,17 @@ md-tts --backend edge --list-voices
 md-tts notes.md --backend edge --export notes.mp3
 # Code blocks become short "skipping code block" announcements; <details>
 # cards keep their question + 3 s silence + answer pattern.
+
+# Inline language switching (Edge backend only):
+#   Default: backticked code is pronounced with the EN voice even inside a
+#   Spanish paragraph, so 'framework' sounds like English.
+md-tts notes.md --backend edge
+
+#   Disable per-span overrides (back to v0.4.x behaviour):
+md-tts notes.md --backend edge --inline-code-lang none
+
+#   Pick custom voices for each language:
+md-tts notes.md --backend edge --voice-es es-MX-DaliaNeural --voice-en en-GB-RyanNeural
 ```
 
 You can also run the module directly:
@@ -121,7 +133,7 @@ python -m md_tts notes.md
 | --- | --- |
 | Headings | Spoken with `Chapter:` / `Section:` prefix (or `Capítulo:` in Spanish). |
 | Paragraphs | Spoken as prose. |
-| Inline code `` ` ` `` | Quoted in the spoken output (e.g. `'git status'`) so it’s audibly distinct from prose. |
+| Inline code `` ` ` `` | With the **local** backend (and the Edge single-voice fast-path), the content is quoted in the spoken output (e.g. `'git status'`) so it's audibly distinct from prose. With the **Edge** backend in mixed-language mode, the inline code text is spoken with the **English voice** by default (the surrounding quotes are dropped because each span is synthesized separately). Disable per-span voice switching with `--inline-code-lang none`. |
 | Fenced code blocks | Pause + print to terminal. |
 | Tables | Pause + print rows. |
 | Inline images | Announced inline as `[imagen: alt]`. |
@@ -158,6 +170,7 @@ The `local` backend uses [`pyttsx4`](https://pypi.org/project/pyttsx4/) (a maint
 - [x] Rewind / skip-back during interactive mode — v0.3
 - [x] MP3 export of an entire document for offline mobile listening — v0.4
 - [x] PyPI release (`pip install md-tts`)
+- [x] Inline language switching: pronounce backticked code in English inside Spanish paragraphs — v0.5
 - [ ] Math blocks (`$$ ... $$`) detected as pause points instead of being read as prose
 - [ ] Standalone image blocks announced as `[image: alt-text]` instead of being silently flattened
 - [ ] Bookmarks: persist a per-document position so `--resume` picks up where you left off
@@ -169,7 +182,7 @@ The `local` backend uses [`pyttsx4`](https://pypi.org/project/pyttsx4/) (a maint
 
 ```bash
 uv sync --extra dev          # install dev extras (pytest, pytest-cov, ruff)
-uv run pytest                # 48 tests
+uv run pytest                # 63 tests
 uv run ruff check .
 uv run ruff format .
 ```

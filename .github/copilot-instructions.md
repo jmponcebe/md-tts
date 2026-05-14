@@ -18,6 +18,7 @@ Side-project built by Jose María Ponce in 2026. Motivated by lack of any existi
 | v0.4.0 | MP3 export via `--export PATH` (Edge backend, atomic write, silence cache) |
 | v0.4.1 | First PyPI release via Trusted Publishing (`pip install md-tts`) |
 | v0.4.2 | `[export]` extra (edge-tts only, no pygame) for headless / Termux + README rewrite |
+| v0.5.0 | Inline language switching: `` `code` `` spans inside Spanish paragraphs are spoken with the English voice. `Span(text, lang)` dataclass, per-span Edge synth with MP3 byte-concat, single-voice fast-path. CLI flags `--inline-code-lang`, `--voice-es`, `--voice-en`. |
 
 ## Open Threads (decide next session)
 
@@ -37,7 +38,7 @@ Side-project built by Jose María Ponce in 2026. Motivated by lack of any existi
 - **Audio playback**: `pygame.mixer.music` (SDL_mixer, cross-platform real pause/unpause, optional extra `[edge]`)
 - **Keyboard polling**: stdlib only — `msvcrt` on Windows, `termios` + `tty` + `select` on POSIX
 - **Lint/format**: ruff
-- **Tests**: pytest (48 passing)
+- **Tests**: pytest (63 passing)
 - **CI**: GitHub Actions (lint + test matrix 3.11/3.12/3.13)
 
 ## Project Structure
