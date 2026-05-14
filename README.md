@@ -28,7 +28,7 @@ It is intentionally minimal. It targets developers who want to revise their own 
 - 🛑 **Interactive pauses** on code blocks and tables.
 - 🎴 **Flashcard mode** for `<details><summary>Q</summary>A</details>` (speak Q, wait, speak A).
 - 🌍 **ES/EN dominant-language detection**: the parser picks a single session voice based on the document's dominant language. Per-paragraph voice switching was tried and proved unstable on SAPI5; it lives in the roadmap.
-- 🔀 **Inline language switching** (Edge backend): `` `inline code `` segments inside a Spanish paragraph are pronounced with the English voice, so technical terms like `` `framework` `` or `` `pipeline` `` sound natural instead of being read as Spanish phonetics.
+- 🔀 **Inline language switching** (Edge backend): backticked code segments inside a Spanish paragraph are pronounced with the English voice, so technical terms like `framework` or `pipeline` sound natural instead of being read as Spanish phonetics.
 - 🎧 **Podcast mode** (`--no-pause`) that announces skipped blocks in the chosen language instead of waiting.
 - 🔊 **Cross-platform TTS** via `pyttsx4` (SAPI5 on Windows, NSSpeechSynthesizer on macOS, eSpeak on Linux). No cloud account, no API key.
 - 🌐 **Optional Edge neural voices** (`--backend edge`): natural-sounding Microsoft voices, picks a voice per paragraph based on the detected language. Requires internet.
@@ -133,7 +133,7 @@ python -m md_tts notes.md
 | --- | --- |
 | Headings | Spoken with `Chapter:` / `Section:` prefix (or `Capítulo:` in Spanish). |
 | Paragraphs | Spoken as prose. |
-| Inline code `` ` ` `` | Quoted in the spoken output (e.g. `'git status'`) so it's audibly distinct from prose. With the Edge backend, the quoted content is **pronounced with the English voice** by default, even inside a Spanish paragraph. Disable with `--inline-code-lang none`. |
+| Inline code `` ` ` `` | With the **local** backend (and the Edge single-voice fast-path), the content is quoted in the spoken output (e.g. `'git status'`) so it's audibly distinct from prose. With the **Edge** backend in mixed-language mode, the inline code text is spoken with the **English voice** by default (the surrounding quotes are dropped because each span is synthesized separately). Disable per-span voice switching with `--inline-code-lang none`. |
 | Fenced code blocks | Pause + print to terminal. |
 | Tables | Pause + print rows. |
 | Inline images | Announced inline as `[imagen: alt]`. |
