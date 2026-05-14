@@ -35,20 +35,40 @@ It is intentionally minimal. It targets developers who want to revise their own 
 
 ## Installation
 
-`md-tts` is not yet on PyPI. Install from source:
+```bash
+pip install md-tts
+```
+
+This gives you the offline `pyttsx4` backend (SAPI5 on Windows, NSSpeechSynthesizer on macOS, eSpeak on Linux) plus the Markdown parser and interactive CLI — no API keys, no internet.
+
+> On Linux you also need `espeak` installed at the system level: `sudo apt-get install espeak libespeak1`.
+
+### Optional extras
+
+| Install | Adds | When to use |
+| --- | --- | --- |
+| `pip install md-tts` | base only | Local TTS playback, no neural voices. |
+| `pip install "md-tts[edge]"` | `edge-tts` + `pygame` | Microsoft Edge neural voices (`--backend edge`) **and** real pause/resume during playback. |
+| `pip install "md-tts[export]"` | `edge-tts` only | MP3 export (`--export out.mp3`) on headless or mobile environments where `pygame`/SDL2 is hard to install. |
+
+### Termux / Android
+
+`pygame` requires SDL2 native libraries and is painful to build on Termux. If you only want to generate MP3 files and listen to them with a regular Android audio player, use the `[export]` extra:
+
+```bash
+pkg install python
+pip install "md-tts[export]"
+md-tts notes.md --backend edge --export notes.mp3
+```
+
+That avoids `pygame` entirely. For local playback on Termux with `pyttsx4` (no Edge), also install `pkg install espeak`. Interactive controls (SPACE pause, +/- rate) work only with the `[edge]` extra, which is not recommended on Termux.
+
+### From source (development)
 
 ```bash
 git clone https://github.com/jmponcebe/md-tts.git
 cd md-tts
-uv sync --extra dev      # installs runtime + pytest/ruff (or: pip install -e ".[dev]")
-```
-
-> On Linux you also need `espeak`: `sudo apt-get install espeak libespeak1`.
-
-The optional Edge neural-voice backend has its own extra so the default install stays fully offline:
-
-```bash
-uv sync --extra edge     # or: pip install -e ".[edge]"
+uv sync --extra dev      # or: pip install -e ".[dev]"
 ```
 
 ## Usage
@@ -110,7 +130,7 @@ python -m md_tts notes.md
 | HR (`---`) | Spoken as `Separador.`. |
 | `<details><summary>Q</summary>A</details>` | Flashcard: speak Q, wait for ENTER, speak A. |
 
-> Math blocks (`$$ ... $$`) and standalone image blocks are not detected as pause points in v0.1.0 — they fall through as text. Adding them is on the [roadmap](#roadmap).
+> Math blocks (`$$ ... $$`) and standalone image blocks are not yet detected as pause points — they fall through as text. Adding them is on the [roadmap](#roadmap).
 
 ## Architecture
 
